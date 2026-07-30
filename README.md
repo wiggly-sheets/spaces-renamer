@@ -13,13 +13,111 @@ Spaces Renamer gives macOS Spaces persistent, useful names in Mission Control. T
 - Menu bar display choices: app icon, current Space name, or number and name
 - Native macOS launch-at-login support
 - Native prompt to move the app into `/Applications`
+- CLI tool (`sr`) for scripting and quick actions
+- Deeplink URL scheme (`spacesrenamer://`) for integration
+- Config file (`~/.config/spacesrenamer/config.toml`) for external profile management
 - Universal app binary (`arm64` + `x86_64`)
 - Universal Dock bundle (`arm64e` + `x86_64`)
 - Modern app icon and native template menu-bar icon
 
 Manual names are stored per Space UUID. Switching profiles immediately republishes the active mapping to the legacy `spaces_renaming` plist key, so the existing Dock injector remains compatible without restarting Spaces Renamer.
 
-## Build
+## Usage
+
+### Menu Bar
+
+- **Left-click** the menu bar item to open the rename popover.
+- **Right-click** the menu bar item to switch profiles, choose a naming mode, or open Settings.
+- Choose the icon, Space name, or number-and-name display under Settings → General.
+- Press **Control–Option–R** from any app to toggle the renamer. Change it under Settings → Hotkey.
+- Edit names in the popover. Return commits the current field; closing the popover saves edited manual names.
+
+### CLI Tool (`sr`)
+
+The `sr` CLI tool is bundled inside the app. On launch, Spaces Renamer symlinks it to `~/.local/bin/sr`.
+
+```bash
+sr status                  # Show current state (profile, naming mode, spaces)
+sr renamer                 # Open rename popover
+sr settings                # Open settings window
+sr profile switch <uuid>   # Activate profile by UUID
+sr profile list            # List profiles
+sr naming manual           # Set manual naming mode
+sr naming applications     # Set apps-in-space mode (requires yabai)
+sr naming yabaiLabels      # Set yabai labels mode (requires yabai)
+sr space <uuid> name <n>   # Set a manual name for a Space
+sr help                    # Print usage
+```
+
+If `sr` is not found:
+
+```bash
+# Check ~/.local/bin is in PATH
+echo $PATH | grep .local/bin
+# Or symlink manually:
+ln -sf /Applications/SpacesRenamer.app/Contents/Resources/sr ~/.local/bin/sr
+```
+
+### Deeplinks (`spacesrenamer://`)
+
+The CLI wraps `open "spacesrenamer://..."`. Deeplinks work from any URL opener (browser, Shortcuts, etc.).
+
+| URL | Action |
+| --- | ------ |
+| `spacesrenamer://settings` | Open settings |
+| `spacesrenamer://renamer` | Toggle rename popover |
+| `spacesrenamer://profile/switch/<uuid>` | Switch active profile |
+| `spacesrenamer://profile/list` | Write status JSON |
+| `spacesrenamer://naming/manual` | Set manual mode |
+| `spacesrenamer://naming/applications` | Set apps mode |
+| `spacesrenamer://naming/yabaiLabels` | Set yabai labels mode |
+| `spacesrenamer://space/<uuid>/name?name=<encoded>` | Set space name |
+| `spacesrenamer://status` | Write status JSON to `/tmp/spaces-renamer-status-$UID.json` |
+
+### Config File
+
+Spaces Renamer watches `~/.config/spacesrenamer/config.toml` for external profile management. Changes are merged live — no restart needed.
+
+```toml
+[settings]
+# naming_mode = "manual"           # manual, applications, or yabaiLabels
+# show_menu_bar = true
+# menu_bar_display = "icon"        # icon, spaceName, or spaceNumberAndName
+# show_duplicate_apps = false
+# hotkey_key = 15                  # keyCode (15 = R)
+# hotkey_ctrl = true
+# hotkey_opt = true
+# hotkey_cmd = false
+# hotkey_shift = false
+# login_item = false
+# active_profile_id = ""
+
+[profiles.Work]
+# uuid = "00000000-0000-0000-0000-000000000000"
+# "space-uuid" = "Display Name"
+
+[profiles.Home]
+# uuid = "11111111-1111-1111-1111-111111111111"
+# "other-space-uuid" = "Another Name"
+```
+
+Profiles are matched by `uuid` field if present, falling back to section name.
+
+## Installation
+
+### Download from GitHub Releases
+
+1. Download `SpacesRenamer-v{VERSION}.zip` from the [Releases](https://github.com/wiggly-sheets/spaces-renamer/releases) page.
+2. Unzip and move `SpacesRenamer.app` to `/Applications`.
+3. macOS may block unsigned apps. Remove the quarantine attribute:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/SpacesRenamer.app
+   ```
+
+   Alternatively, right-click the app in Finder and select **Open** from the context menu, then click **Open** in the dialog. This registers an exception for future launches.
+
+### Build from Source
 
 Requires Xcode 15 or newer and macOS 13 or newer.
 
@@ -36,9 +134,15 @@ Build products:
 
 `make universal` verifies the architectures with `lipo`.
 
+| Artifact | Architectures |
+| -------- | ------------- |
+| `SpacesRenamer.app` | `arm64` `x86_64` |
+| `spaces-renamer.bundle` | `arm64e` `x86_64` |
+| `injection/lib/spaces-renamer.dylib` | `arm64e` |
+
 ## Injection
 
-The repository’s `injection/` folder contains the current `dylinject` workflow:
+The repository's `injection/` folder contains the current `dylinject` workflow:
 
 ```bash
 ./injection/run.sh
@@ -56,14 +160,6 @@ to Dock with the Points of Interest or Time Profiler instrument, then open and
 close Mission Control. `ApplyNames` intervals report cache hits, whether layout
 state changed, the number of Spaces processed, and how many label subtrees were
 refreshed. `ReloadPlists` events identify cache invalidations.
-
-## Usage
-
-- Left-click the menu bar item to open the renamer.
-- Right-click the menu bar item to switch profiles, choose a naming mode, or open Settings.
-- Choose the icon, Space name, or number-and-name display under Settings → General.
-- Press Control–Option–R from any app to toggle the renamer. Change it under Settings → Hotkey.
-- Edit names in the popover. Return commits the current field; closing the popover saves edited manual names.
 
 ## Data
 

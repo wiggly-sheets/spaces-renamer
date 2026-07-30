@@ -255,7 +255,7 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				INFOPLIST_FILE = "$(SRCROOT)/spaces-renamer/Info.plist";
 				INSTALL_PATH = "$(BUILD_DIR)/Injection";
-				MARKETING_VERSION = 1.11.1;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.alexbeals.spaces-renamer";
 				PRODUCT_NAME = "spaces-renamer";
 				WRAPPER_EXTENSION = bundle;
@@ -278,7 +278,7 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				INFOPLIST_FILE = "$(SRCROOT)/spaces-renamer/Info.plist";
 				INSTALL_PATH = "$(BUILD_DIR)/Injection";
-				MARKETING_VERSION = 1.11.1;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.alexbeals.spaces-renamer";
 				PRODUCT_NAME = "spaces-renamer";
 				WRAPPER_EXTENSION = bundle;
@@ -391,7 +391,7 @@
 				INFOPLIST_FILE = SpacesRenamer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.11.1;
+				MARKETING_VERSION = 0.9.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.wiggly-sheets.SpacesRenamer";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -442,7 +442,7 @@
 				INFOPLIST_FILE = SpacesRenamer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.11.1;
+				MARKETING_VERSION = 0.9.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.wiggly-sheets.SpacesRenamer";
 				PRODUCT_NAME = "$(TARGET_NAME)";

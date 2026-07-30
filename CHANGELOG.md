@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.9.0 (2026-07-30)
+
+### Added
+
+- CLI tool (`sr`) for status, renamer, settings, profile switching, naming mode, and Space naming commands. Symlinked to `~/.local/bin/sr` on app launch.
+- Deeplink URL scheme (`spacesrenamer://`) for integration from browsers, Shortcuts, or any URL opener. Supports all CLI commands plus direct Space naming with URL-encoded names.
+- Config file (`~/.config/spacesrenamer/config.toml`) for external profile and settings management. Watched live — no restart needed.
+- yabai health check in Settings: runs `yabai -m query --spaces` to confirm yabai is actually responding (replaces unreliable socket path guessing).
+- Architecture table in README showing expected slices per artifact.
+
+### Changed
+
+- README reorganized with Usage section covering Menu Bar, CLI Tool, Deeplinks, and Config File.
+- yabai status checker simplified to single green/red indicator based on command response.
+
+### Fixed
+
+- CLI `sr status` now triggers a deeplink to write the status file before reading it, so it always returns fresh data.
+
+## 2025-06-10
+
 ### Added
 
 - Profiles, live profile switching, settings, a global renamer hotkey, and optional automatic app-based names.

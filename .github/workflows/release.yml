@@ -1,0 +1,54 @@
+# Build and publish a GitHub Release with built artifacts.
+#
+# Trigger: push a tag matching v* (e.g. v1.0.0)
+#
+# The workflow builds the universal app + bundle, packages them as a zip,
+# and creates a GitHub Release with the archive attached.
+#
+# Prerequisites for a production-quality release:
+#   - Developer ID Application certificate for signing
+#   - Notarization via `xcrun notarytool`
+#   - DMG or signed installer package
+# These are not yet implemented.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build and package
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build (universal)
+        run: make universal
+
+      - name: Package artifacts
+        run: |
+          DERIVED=".build/DerivedData/Build/Products/Release"
+          ARCHIVE="SpacesRenamer-${{ github.ref_name }}.zip"
+          ditto -c -k --keepParent \
+            "$DERIVED/SpacesRenamer.app" \
+            "$ARCHIVE"
+          # Generate checksum for Homebrew formula
+          shasum -a 256 "$ARCHIVE" | tee "$ARCHIVE.sha256"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          draft: true
+          files: |
+            SpacesRenamer-${{ github.ref_name }}.zip
+            SpacesRenamer-${{ github.ref_name }}.zip.sha256
