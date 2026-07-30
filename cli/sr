@@ -1,0 +1,108 @@
+#!/bin/bash
+# sr — Spaces Renamer CLI
+# Thin wrapper around the spacesrenamer:// URL scheme.
+# Symlinked to ~/.local/bin/sr by the app on launch.
+set -euo pipefail
+
+CMD="${1:-help}"
+STATUS_FILE="/tmp/spaces-renamer-status-${UID}.json"
+
+open_url() {
+  open "spacesrenamer://$1"
+}
+
+case "$CMD" in
+  status)
+    open_url "status"
+    sleep 0.15
+    if [[ -f "$STATUS_FILE" ]]; then
+      if command -v python3 &>/dev/null; then
+        python3 -m json.tool "$STATUS_FILE" 2>/dev/null || cat "$STATUS_FILE"
+      else
+        cat "$STATUS_FILE"
+      fi
+    else
+      echo "Status file not found. Is Spaces Renamer running?" >&2
+      exit 1
+    fi
+    ;;
+  renamer)
+    open_url "renamer"
+    ;;
+  settings)
+    open_url "settings"
+    ;;
+  profile)
+    SUB="${2:-}"
+    case "$SUB" in
+      switch)
+        open_url "profile/switch/${3:-}"
+        ;;
+      list)
+        open_url "profile/list"
+        sleep 0.15
+        if [[ -f "$STATUS_FILE" ]]; then
+          if command -v python3 &>/dev/null; then
+            python3 -m json.tool "$STATUS_FILE" 2>/dev/null || cat "$STATUS_FILE"
+          else
+            cat "$STATUS_FILE"
+          fi
+        fi
+        ;;
+      *)
+        echo "Usage: sr profile switch <uuid> | sr profile list" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  naming)
+    MODE="${2:-}"
+    case "$MODE" in
+      manual|applications|yabaiLabels)
+        open_url "naming/${MODE}"
+        ;;
+      *)
+        echo "Usage: sr naming manual|applications|yabaiLabels" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  space)
+    SPACE_UUID="${2:-}"
+    SUB="${3:-}"
+    case "$SUB" in
+      name)
+        shift 3
+        NAME="$*"
+        if [[ -z "$NAME" ]]; then
+          echo "Usage: sr space <uuid> name <name>" >&2
+          exit 1
+        fi
+        ENCODED=$(SR_NAME="$NAME" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['SR_NAME']))")
+        open_url "space/${SPACE_UUID}/name?name=${ENCODED}"
+        ;;
+      *)
+        echo "Usage: sr space <uuid> name <name>" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  help|--help|-h)
+    echo "Spaces Renamer CLI"
+    echo ""
+    echo "Usage:"
+    echo "  sr status                  Show current state"
+    echo "  sr renamer                 Open rename popover"
+    echo "  sr settings                Open settings"
+    echo "  sr profile switch <uuid>   Switch active profile"
+    echo "  sr profile list            List profiles as JSON"
+    echo "  sr naming <mode>           Set naming mode (manual|applications|yabaiLabels)"
+    echo "  sr space <uuid> name <n>  Set space name"
+    echo "  sr help                    Show this help"
+    ;;
+  *)
+    echo "Unknown command: $CMD" >&2
+    echo "Run 'sr help' for usage." >&2
+    exit 1
+    ;;
+esac

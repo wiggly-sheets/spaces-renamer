@@ -69,7 +69,7 @@ private struct GeneralSettingsView: View {
       .pickerStyle(.radioGroup)
       .disabled(!preferences.showMenuBarIcon)
 
-      Text("Show the Spaces Renamer symbol, the current name such as “Code,” or its number and name such as “1. Code.”")
+      Text("Show the Spaces Renamer symbol, the current name such as \"Code,\" or its number and name such as \"1. Code.\"")
         .font(.callout)
         .foregroundStyle(.secondary)
 
@@ -390,12 +390,17 @@ private struct AutomaticNamingSettingsView: View {
           set: { preferences.setShowDuplicateApplications($0) }
         ))
 
-        Text("When enabled, two Safari windows appear as “Safari · Safari.” Off by default.")
+        Text("When enabled, two Safari windows appear as \"Safari · Safari.\" Off by default.")
           .font(.callout)
           .foregroundStyle(.secondary)
       }
 
       Divider()
+
+      YabaiStatusView()
+
+      Divider()
+
       Text("Preview")
         .font(.headline)
       ForEach(spaces.snapshot.flatMap(\.spaces)) { space in
@@ -431,6 +436,69 @@ private struct AutomaticNamingSettingsView: View {
         : space.appNames.prefix(3).joined(separator: " · ")
     case .yabaiLabels:
       return space.yabaiLabel ?? "No yabai label"
+    }
+  }
+}
+
+// MARK: - Yabai Status Checker
+
+private struct YabaiStatusView: View {
+  @State private var yabaiResponding = false
+  @State private var checking = true
+
+  var body: some View {
+    Group {
+      if checking {
+        Label("Checking yabai…", systemImage: "clock")
+          .foregroundStyle(.secondary)
+      } else if yabaiResponding {
+        Label("yabai is running", systemImage: "checkmark.circle.fill")
+          .foregroundColor(.green)
+          .font(.callout)
+      } else {
+        VStack(alignment: .leading, spacing: 4) {
+          Label("yabai not responding", systemImage: "xmark.circle.fill")
+            .foregroundColor(.red)
+            .font(.callout)
+          Text("Automatic naming requires yabai. Install or start it: https://github.com/koekeishiya/yabai")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .onAppear { checkYabai() }
+  }
+
+  private func checkYabai() {
+    checking = true
+    DispatchQueue.global(qos: .background).async {
+      let ok = Self.pingYabai()
+      DispatchQueue.main.async {
+        yabaiResponding = ok
+        checking = false
+      }
+    }
+  }
+
+  private static func pingYabai() -> Bool {
+    guard let path = yabaiPath() else { return false }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: path)
+    process.arguments = ["-m", "query", "--spaces"]
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    do {
+      try process.run()
+      process.waitUntilExit()
+      return process.terminationStatus == 0
+    } catch {
+      return false
+    }
+  }
+
+  private static func yabaiPath() -> String? {
+    ["/opt/homebrew/bin/yabai", "/usr/local/bin/yabai"].first {
+      FileManager.default.isExecutableFile(atPath: $0)
     }
   }
 }

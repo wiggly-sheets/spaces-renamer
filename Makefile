@@ -1,11 +1,16 @@
 PROJECT := spaces-renamer.xcodeproj
 DERIVED_DATA := .build/DerivedData
 XCODEBUILD := xcodebuild -project $(PROJECT) -configuration Release -derivedDataPath $(DERIVED_DATA) CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=NO
+APP := $(DERIVED_DATA)/Build/Products/Release/SpacesRenamer.app
 
 .PHONY: app plugin package-injection universal verify clean
 
 app:
 	$(XCODEBUILD) -scheme SpacesRenamer 'ARCHS=arm64 x86_64' build
+	# Bundle CLI tool into app resources.
+	mkdir -p "$(APP)/Contents/Resources"
+	cp cli/sr "$(APP)/Contents/Resources/sr"
+	chmod 0755 "$(APP)/Contents/Resources/sr"
 
 plugin:
 	$(XCODEBUILD) -scheme spaces-renamer 'ARCHS=arm64e x86_64' build
@@ -16,7 +21,7 @@ package-injection: plugin
 universal: app package-injection verify
 
 verify:
-	lipo -info "$(DERIVED_DATA)/Build/Products/Release/SpacesRenamer.app/Contents/MacOS/SpacesRenamer"
+	lipo -info "$(APP)/Contents/MacOS/SpacesRenamer"
 	lipo -info "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer"
 	lipo -info injection/lib/spaces-renamer.dylib
 

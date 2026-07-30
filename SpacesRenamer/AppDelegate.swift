@@ -4,336 +4,6 @@ import Darwin
 import ServiceManagement
 import SwiftUI
 
-@main
-final class AppDelegate: NSObject, NSApplicationDelegate {
-  private let preferences = PreferencesStore()
-  private let spaces = SpaceStore()
-  private var statusItem: NSStatusItem!
-  private let popover = NSPopover()
-  private var settingsWindow: NSWindow?
-  private var hotkeyMonitor: GlobalHotkeyMonitor?
-  private var yabaiEventMonitor: YabaiEventMonitor?
-  private var pendingAutomaticRefresh: DispatchWorkItem?
-  private var observers: [NSObjectProtocol] = []
-
-  static func main() {
-    let application = NSApplication.shared
-    let delegate = AppDelegate()
-    application.delegate = delegate
-    application.run()
-  }
-
-  func applicationDidFinishLaunching(_ notification: Notification) {
-    NSApp.setActivationPolicy(.accessory)
-    ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
-    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    statusItem.autosaveName = "SpacesRenamerStatusItem.v2"
-    configureStatusItem()
-    configurePopover()
-    configureObservers()
-    configureAutomaticNameUpdates()
-    configureHotkey()
-    refreshSpaces()
-    DispatchQueue.main.async {
-      NativeAppManagement.promptToMoveIfNeeded()
-    }
-  }
-
-  func applicationWillTerminate(_ notification: Notification) {
-    pendingAutomaticRefresh?.cancel()
-    yabaiEventMonitor?.stop()
-    observers.forEach(NotificationCenter.default.removeObserver)
-    NSWorkspace.shared.notificationCenter.removeObserver(self)
-  }
-
-  func applicationShouldHandleReopen(
-    _ sender: NSApplication,
-    hasVisibleWindows flag: Bool
-  ) -> Bool {
-    openSettings()
-    return true
-  }
-
-  private func configureStatusItem() {
-    statusItem.isVisible = preferences.showMenuBarIcon
-    guard let button = statusItem.button else { return }
-    button.target = self
-    button.action = #selector(statusItemPressed(_:))
-    button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-    updateStatusItemContent()
-  }
-
-  private static func makeStatusItemImage() -> NSImage? {
-    guard let symbol = NSImage(
-      systemSymbolName: "rectangle.grid.2x2",
-      accessibilityDescription: "Spaces Renamer"
-    ) else { return nil }
-    let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-    return symbol.withSymbolConfiguration(configuration) ?? symbol
-  }
-
-  private func configurePopover() {
-    popover.behavior = .transient
-    popover.animates = true
-    popover.contentSize = NSSize(width: 560, height: 330)
-    popover.contentViewController = NSHostingController(
-      rootView: RenamerView()
-        .environmentObject(preferences)
-        .environmentObject(spaces)
-    )
-  }
-
-  private func configureObservers() {
-    let center = NotificationCenter.default
-    observers.append(center.addObserver(
-      forName: NSApplication.didChangeScreenParametersNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in self?.refreshSpaces() })
-    observers.append(center.addObserver(
-      forName: .spacesRenamerPreferencesChanged,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      self?.configureHotkey()
-      self?.configureStatusItem()
-      self?.refreshSpaces()
-    })
-    NSWorkspace.shared.notificationCenter.addObserver(
-      self,
-      selector: #selector(workspaceChanged(_:)),
-      name: NSWorkspace.activeSpaceDidChangeNotification,
-      object: nil
-    )
-    NSWorkspace.shared.notificationCenter.addObserver(
-      self,
-      selector: #selector(workspaceApplicationsChanged(_:)),
-      name: NSWorkspace.didLaunchApplicationNotification,
-      object: nil
-    )
-    NSWorkspace.shared.notificationCenter.addObserver(
-      self,
-      selector: #selector(workspaceApplicationsChanged(_:)),
-      name: NSWorkspace.didTerminateApplicationNotification,
-      object: nil
-    )
-  }
-
-  private func configureHotkey() {
-    hotkeyMonitor = GlobalHotkeyMonitor(
-      keyCode: preferences.hotkey.keyCode,
-      modifiers: preferences.hotkey.carbonModifiers
-    ) { [weak self] in
-      DispatchQueue.main.async { self?.toggleRenamer() }
-    }
-  }
-
-  private func configureAutomaticNameUpdates() {
-    yabaiEventMonitor = YabaiEventMonitor { [weak self] in
-      self?.scheduleAutomaticRefresh()
-    }
-  }
-
-  private func scheduleAutomaticRefresh(after delay: TimeInterval = 0.35) {
-    guard preferences.namingMode != .manual else { return }
-    pendingAutomaticRefresh?.cancel()
-    let work = DispatchWorkItem { [weak self] in
-      self?.pendingAutomaticRefresh = nil
-      self?.refreshSpaces()
-    }
-    pendingAutomaticRefresh = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-  }
-
-  private func refreshSpaces() {
-    spaces.refresh(
-      for: preferences.namingMode,
-      showDuplicateApplications: preferences.showDuplicateApplications
-    )
-    preferences.applyGeneratedNames(from: spaces.snapshot)
-    updateStatusItemContent()
-  }
-
-  private func updateStatusItemContent() {
-    guard let button = statusItem.button else { return }
-
-    switch preferences.menuBarDisplayMode {
-    case .icon:
-      statusItem.length = NSStatusItem.squareLength
-      button.image = Self.makeStatusItemImage()
-      button.imagePosition = .imageOnly
-      button.title = ""
-      button.toolTip = "Spaces Renamer"
-    case .spaceName, .spaceNumberAndName:
-      let space = currentSpaceForStatusItem()
-      let name = space.map { preferences.name(for: $0.id) } ?? ""
-      let title: String
-      if let space {
-        switch preferences.menuBarDisplayMode {
-        case .icon:
-          title = ""
-        case .spaceName:
-          title = name.isEmpty ? "Space \(space.index)" : name
-        case .spaceNumberAndName:
-          title = name.isEmpty ? "\(space.index)" : "\(space.index). \(name)"
-        }
-      } else {
-        title = "Spaces"
-      }
-
-      statusItem.length = NSStatusItem.variableLength
-      button.image = nil
-      button.imagePosition = .noImage
-      button.title = title
-      button.toolTip = "Spaces Renamer — \(title)"
-    }
-  }
-
-  private func currentSpaceForStatusItem() -> ManagedSpace? {
-    if
-      let screen = statusItem.button?.window?.screen ?? NSScreen.main,
-      let screenNumber = screen.deviceDescription[
-        NSDeviceDescriptionKey("NSScreenNumber")
-      ] as? NSNumber,
-      let displayUUID = CGDisplayCreateUUIDFromDisplayID(
-        CGDirectDisplayID(screenNumber.uint32Value)
-      )?.takeRetainedValue(),
-      let identifier = CFUUIDCreateString(nil, displayUUID) as String?
-    {
-      if let matchingDisplay = spaces.snapshot.first(where: {
-        $0.id.caseInsensitiveCompare(identifier) == .orderedSame
-      }) {
-        return matchingDisplay.spaces.first(where: { $0.isCurrent })
-      }
-    }
-
-    return spaces.snapshot.lazy.flatMap(\.spaces).first(where: { $0.isCurrent })
-  }
-
-  @objc private func workspaceApplicationsChanged(_ notification: Notification) {
-    scheduleAutomaticRefresh()
-  }
-
-  @objc private func workspaceChanged(_ notification: Notification) {
-    refreshSpaces()
-  }
-
-  @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
-    if NSApp.currentEvent?.type == .rightMouseUp {
-      showContextMenu()
-    } else {
-      toggleRenamer()
-    }
-  }
-
-  private func toggleRenamer() {
-    guard preferences.showMenuBarIcon else {
-      openSettings()
-      return
-    }
-    guard let button = statusItem.button else { return }
-    if popover.isShown {
-      popover.performClose(nil)
-    } else {
-      refreshSpaces()
-      popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-      NSApp.activate(ignoringOtherApps: true)
-    }
-  }
-
-  private func showContextMenu() {
-    let menu = NSMenu()
-    menu.addItem(withTitle: "Open Spaces Renamer", action: #selector(openRenamer), keyEquivalent: "")
-
-    let profilesItem = NSMenuItem(title: "Profile", action: nil, keyEquivalent: "")
-    let profilesMenu = NSMenu(title: "Profile")
-    for profile in preferences.profiles {
-      let item = NSMenuItem(title: profile.name, action: #selector(selectProfile(_:)), keyEquivalent: "")
-      item.representedObject = profile.id.uuidString
-      item.target = self
-      item.state = profile.id == preferences.activeProfileID ? .on : .off
-      profilesMenu.addItem(item)
-    }
-    profilesItem.submenu = profilesMenu
-    menu.addItem(profilesItem)
-
-    let namingItem = NSMenuItem(title: "Naming Mode", action: nil, keyEquivalent: "")
-    let namingMenu = NSMenu(title: "Naming Mode")
-    for mode in NamingMode.allCases {
-      let item = NSMenuItem(
-        title: mode.title,
-        action: #selector(selectNamingMode(_:)),
-        keyEquivalent: ""
-      )
-      item.representedObject = mode.rawValue
-      item.target = self
-      item.state = mode == preferences.namingMode ? .on : .off
-      namingMenu.addItem(item)
-    }
-    namingItem.submenu = namingMenu
-    menu.addItem(namingItem)
-
-    menu.addItem(.separator())
-    let settings = menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-    settings.target = self
-    menu.addItem(.separator())
-    let quit = menu.addItem(withTitle: "Quit Spaces Renamer", action: #selector(quitApp), keyEquivalent: "q")
-    quit.target = self
-
-    statusItem.menu = menu
-    statusItem.button?.performClick(nil)
-    statusItem.menu = nil
-  }
-
-  @objc private func openRenamer() {
-    toggleRenamer()
-  }
-
-  @objc private func selectProfile(_ sender: NSMenuItem) {
-    guard
-      let rawID = sender.representedObject as? String,
-      let id = UUID(uuidString: rawID)
-    else { return }
-    preferences.activateProfile(id)
-  }
-
-  @objc private func selectNamingMode(_ sender: NSMenuItem) {
-    guard
-      let rawValue = sender.representedObject as? String,
-      let mode = NamingMode(rawValue: rawValue)
-    else { return }
-    preferences.setNamingMode(mode)
-  }
-
-  @objc func openSettings() {
-    if let settingsWindow {
-      settingsWindow.makeKeyAndOrderFront(nil)
-      NSApp.activate(ignoringOtherApps: true)
-      return
-    }
-
-    let controller = NSHostingController(
-      rootView: SettingsView()
-        .environmentObject(preferences)
-        .environmentObject(spaces)
-    )
-    let window = NSWindow(contentViewController: controller)
-    window.title = "Spaces Renamer Settings"
-    window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-    window.setContentSize(NSSize(width: 780, height: 520))
-    window.minSize = NSSize(width: 680, height: 440)
-    window.center()
-    window.isReleasedWhenClosed = false
-    settingsWindow = window
-    window.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
-  }
-
-  @objc private func quitApp() {
-    NSApp.terminate(nil)
-  }
-}
-
 /// Keeps automatic names fresh without polling. Yabai emits only when a
 /// window/Space change can affect the generated names; bursts are debounced by
 /// AppDelegate before the required yabai queries run.
@@ -522,5 +192,438 @@ final class GlobalHotkeyMonitor {
   deinit {
     if let hotKey { UnregisterEventHotKey(hotKey) }
     if let handler { RemoveEventHandler(handler) }
+  }
+}
+
+@main
+final class AppDelegate: NSObject, NSApplicationDelegate {
+  /// Manually wired `@main` entry point. Without this explicit implementation,
+  /// the compiler-synthesized `main()` may not install the delegate for
+  /// LSUIElement (.accessory) apps, causing `applicationDidFinishLaunching`
+  /// to never fire.
+  static func main() {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.run()
+  }
+
+  private let preferences = PreferencesStore()
+  private let spaces = SpaceStore()
+  private lazy var configFile = ConfigFile(preferences: preferences)
+  private var statusItem: NSStatusItem!
+  private let popover = NSPopover()
+  private var settingsWindow: NSWindow?
+  private var hotkeyMonitor: GlobalHotkeyMonitor?
+  private var yabaiEventMonitor: YabaiEventMonitor?
+  private var pendingAutomaticRefresh: DispatchWorkItem?
+  private var observers: [NSObjectProtocol] = []
+
+  // MARK: - Application Lifecycle
+
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    NSApp.setActivationPolicy(.accessory)
+    ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
+
+    installCLISymlink()
+    _ = configFile
+
+    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    statusItem.autosaveName = "SpacesRenamerStatusItem.v2"
+    configureStatusItem()
+    configurePopover()
+    configureObservers()
+    configureAutomaticNameUpdates()
+    configureHotkey()
+    refreshSpaces()
+    DispatchQueue.main.async {
+      NativeAppManagement.promptToMoveIfNeeded()
+    }
+  }
+
+  func application(_ application: NSApplication, open urls: [URL]) {
+    for url in urls { handleDeeplink(url) }
+  }
+
+  func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
+    if hasVisibleWindows {
+      settingsWindow?.close()
+    } else {
+      openSettings()
+    }
+    return true
+  }
+
+  // MARK: - Deeplink Handling
+
+  private func handleDeeplink(_ url: URL) {
+    guard url.scheme == "spacesrenamer", let host = url.host else { return }
+    let components = [host] + url.pathComponents.dropFirst()
+    guard components.count >= 1 else { return }
+
+    switch (components.count, components[safe: 0], components[safe: 1], components[safe: 2]) {
+    case (1, "settings", _, _):
+      openSettings()
+    case (1, "renamer", _, _):
+      togglePopover()
+    case (3, "profile", "switch", let uuid):
+      if let uuidStr = uuid, let id = UUID(uuidString: uuidStr) {
+        preferences.activateProfile(id)
+      }
+    case (2, "profile", "list", _):
+      writeStatusJSON()
+    case (2, "naming", let mode, _):
+      if let modeStr = mode, let namingMode = NamingMode(rawValue: modeStr) {
+        preferences.setNamingMode(namingMode)
+      }
+    case (3, "space", let uuid, "name"):
+      if let name = url.queryParameters?["name"]?.removingPercentEncoding,
+         let uuidStr = uuid {
+        preferences.setName(name, for: uuidStr)
+      }
+    case (1, "status", _, _):
+      writeStatusJSON()
+    default:
+      break
+    }
+  }
+
+  private func writeStatusJSON() {
+    let dict: [String: Any] = [
+      "activeProfile": preferences.activeProfile.name,
+      "activeProfileID": preferences.activeProfileID.uuidString,
+      "namingMode": preferences.namingMode.rawValue,
+      "showMenuBar": preferences.showMenuBarIcon,
+      "menuBarDisplay": preferences.menuBarDisplayMode.rawValue,
+      "profiles": preferences.profiles.map { ["id": $0.id.uuidString, "name": $0.name, "spaceCount": $0.names.count] },
+      "spaces": spaces.snapshot.flatMap(\.spaces).map { ["id": $0.id, "index": $0.index, "name": preferences.name(for: $0.id)] },
+    ]
+    let uid = getuid()
+    let url = URL(fileURLWithPath: "/tmp/spaces-renamer-status-\(uid).json")
+    do {
+      let data = try JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
+      try data.write(to: url, options: .atomic)
+    } catch {
+      NSLog("Failed to write status JSON: \(error.localizedDescription)")
+    }
+  }
+
+  // MARK: - CLI Symlink
+
+  private func installCLISymlink() {
+    let fileManager = FileManager.default
+    let symlinkDir = URL(fileURLWithPath: "\(NSHomeDirectory())/.local/bin")
+    let symlinkPath = symlinkDir.appendingPathComponent("sr")
+    let resourcePath: String
+
+    if let path = Bundle.main.url(forResource: "sr", withExtension: nil)?.path {
+      resourcePath = path
+    } else {
+      NSLog("CLI resource 'sr' not found in bundle; skipping symlink.")
+      return
+    }
+
+    var isDir: ObjCBool = false
+    if !fileManager.fileExists(atPath: symlinkDir.path, isDirectory: &isDir) {
+      do {
+        try fileManager.createDirectory(at: symlinkDir, withIntermediateDirectories: true)
+      } catch {
+        NSLog("Could not create \(symlinkDir.path): \(error.localizedDescription)")
+        return
+      }
+    }
+
+    if fileManager.fileExists(atPath: symlinkPath.path) {
+      if symlinkPath.resolvingSymlinksInPath().path == resourcePath {
+        return
+      }
+      do {
+        try fileManager.removeItem(at: symlinkPath)
+      } catch {
+        NSLog("Could not remove stale symlink: \(error.localizedDescription)")
+      }
+    }
+
+    do {
+      try fileManager.createSymbolicLink(at: symlinkPath, withDestinationURL: URL(fileURLWithPath: resourcePath))
+      NSLog("Symlinked \(symlinkPath.path) → \(resourcePath)")
+    } catch {
+      NSLog("Could not symlink CLI tool: \(error.localizedDescription)")
+    }
+  }
+
+  // MARK: - Status Item
+
+  private func configureStatusItem() {
+    statusItem.isVisible = preferences.showMenuBarIcon
+    guard let button = statusItem.button else { return }
+    button.target = self
+    button.action = #selector(statusItemPressed(_:))
+    button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    updateStatusItemContent()
+  }
+
+  private func configurePopover() {
+    popover.behavior = .transient
+    popover.animates = true
+    popover.contentSize = NSSize(width: 560, height: 330)
+    popover.contentViewController = NSHostingController(
+      rootView: RenamerView()
+        .environmentObject(preferences)
+        .environmentObject(spaces)
+    )
+  }
+
+  private func updateStatusItemContent() {
+    guard let button = statusItem.button else { return }
+
+    switch preferences.menuBarDisplayMode {
+    case .icon:
+      button.image = NSImage(systemSymbolName: "rectangle.grid.2x2", accessibilityDescription: "Spaces Renamer")
+      button.title = ""
+      statusItem.length = NSStatusItem.squareLength
+      button.imagePosition = .imageLeft
+    case .spaceName, .spaceNumberAndName:
+      let label = currentSpaceLabel()
+      if label.isEmpty {
+        button.image = NSImage(systemSymbolName: "rectangle.grid.2x2", accessibilityDescription: "Spaces Renamer")
+        button.title = ""
+        statusItem.length = NSStatusItem.squareLength
+        button.imagePosition = .imageLeft
+      } else {
+        button.image = nil
+        button.title = label
+        statusItem.length = NSStatusItem.variableLength
+        button.imagePosition = .noImage
+      }
+    }
+    button.toolTip = "Spaces Renamer"
+  }
+
+  private func currentSpaceLabel() -> String {
+    let all = spaces.snapshot.flatMap(\.spaces)
+    guard let current = all.first(where: { $0.isCurrent }) ?? all.first else { return "" }
+    let name = preferences.name(for: current.id)
+    switch preferences.menuBarDisplayMode {
+    case .icon:
+      return ""
+    case .spaceName:
+      return name
+    case .spaceNumberAndName:
+      return "\(current.index). \(name)"
+    }
+  }
+
+  // MARK: - Actions
+
+  @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
+    guard let event = NSApp.currentEvent else { return }
+
+    if event.type == .rightMouseUp {
+      let menu = NSMenu()
+      menu.addItem(NSMenuItem(title: "Profiles", action: nil, keyEquivalent: ""))
+      for profile in preferences.profiles {
+        let item = NSMenuItem(title: profile.name, action: #selector(switchProfile(_:)), keyEquivalent: "")
+        item.state = profile.id == preferences.activeProfileID ? .on : .off
+        item.representedObject = profile.id.uuidString
+        menu.addItem(item)
+      }
+      menu.addItem(.separator())
+      menu.addItem(NSMenuItem(title: "Naming", action: nil, keyEquivalent: ""))
+      for mode in NamingMode.allCases {
+        let item = NSMenuItem(title: mode.title, action: #selector(switchNamingMode(_:)), keyEquivalent: "")
+        item.state = preferences.namingMode == mode ? .on : .off
+        item.representedObject = mode.rawValue
+        menu.addItem(item)
+      }
+      menu.addItem(.separator())
+      menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
+      statusItem.menu = menu
+      statusItem.button?.performClick(nil)
+      statusItem.menu = nil
+      return
+    }
+
+    if popover.isShown {
+      popover.close()
+    } else {
+      popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+      popover.contentViewController?.view.window?.makeKey()
+      NSApp.activate(ignoringOtherApps: true)
+    }
+  }
+
+  @objc private func switchProfile(_ sender: NSMenuItem) {
+    guard let uuidStr = sender.representedObject as? String,
+          let id = UUID(uuidString: uuidStr) else { return }
+    preferences.activateProfile(id)
+  }
+
+  @objc private func switchNamingMode(_ sender: NSMenuItem) {
+    guard let raw = sender.representedObject as? String,
+          let mode = NamingMode(rawValue: raw) else { return }
+    preferences.setNamingMode(mode)
+  }
+
+  @objc func openSettings() {
+    if let settingsWindow {
+      settingsWindow.makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
+      return
+    }
+
+    let controller = NSHostingController(
+      rootView: SettingsView()
+        .environmentObject(preferences)
+        .environmentObject(spaces)
+    )
+    let window = NSWindow(contentViewController: controller)
+    window.title = "Spaces Renamer Settings"
+    window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+    window.setContentSize(NSSize(width: 780, height: 520))
+    window.minSize = NSSize(width: 680, height: 440)
+    window.center()
+    window.isReleasedWhenClosed = false
+    settingsWindow = window
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  @objc private func quitApp() {
+    NSApp.terminate(nil)
+  }
+
+  private func togglePopover() {
+    guard preferences.showMenuBarIcon else {
+      openSettings()
+      return
+    }
+    if popover.isShown {
+      popover.close()
+    } else {
+      guard let button = statusItem.button else { return }
+      popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+      popover.contentViewController?.view.window?.makeKey()
+      NSApp.activate(ignoringOtherApps: true)
+    }
+  }
+
+  // MARK: - Notifications
+
+  private func configureObservers() {
+    observers.append(
+      NotificationCenter.default.addObserver(
+        forName: .spacesRenamerPreferencesChanged,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.preferencesChanged()
+      }
+    )
+
+    observers.append(
+      NSWorkspace.shared.notificationCenter.addObserver(
+        forName: NSWorkspace.activeSpaceDidChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.refreshSpaces()
+      }
+    )
+
+    observers.append(
+      NotificationCenter.default.addObserver(
+        forName: NSApplication.didChangeScreenParametersNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.refreshSpaces()
+      }
+    )
+
+    let workspaceNC = NSWorkspace.shared.notificationCenter
+    observers.append(
+      workspaceNC.addObserver(
+        forName: NSWorkspace.didLaunchApplicationNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.scheduleAutomaticRefresh()
+      }
+    )
+    observers.append(
+      workspaceNC.addObserver(
+        forName: NSWorkspace.didTerminateApplicationNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.scheduleAutomaticRefresh()
+      }
+    )
+  }
+
+  private func preferencesChanged() {
+    statusItem.isVisible = preferences.showMenuBarIcon
+    updateStatusItemContent()
+    configureHotkey()
+    refreshSpaces()
+  }
+
+  // MARK: - Automatic Naming
+
+  private func configureAutomaticNameUpdates() {
+    yabaiEventMonitor = YabaiEventMonitor { [weak self] in
+      self?.scheduleAutomaticRefresh()
+    }
+  }
+
+  private func scheduleAutomaticRefresh() {
+    guard preferences.namingMode != .manual else { return }
+    pendingAutomaticRefresh?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      self?.refreshSpaces()
+      self?.pendingAutomaticRefresh = nil
+    }
+    pendingAutomaticRefresh = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+  }
+
+  private func refreshSpaces() {
+    spaces.refresh(for: preferences.namingMode, showDuplicateApplications: preferences.showDuplicateApplications)
+    preferences.applyGeneratedNames(from: spaces.snapshot)
+    updateStatusItemContent()
+  }
+
+  private func configureHotkey() {
+    let p = preferences.hotkey
+    hotkeyMonitor = GlobalHotkeyMonitor(keyCode: p.keyCode, modifiers: p.carbonModifiers) { [weak self] in
+      DispatchQueue.main.async { self?.togglePopover() }
+    }
+  }
+
+  // MARK: - Teardown
+
+  func applicationWillTerminate(_ notification: Notification) {
+    pendingAutomaticRefresh?.cancel()
+    yabaiEventMonitor?.stop()
+    observers.forEach(NotificationCenter.default.removeObserver)
+  }
+}
+
+// MARK: - Extensions
+
+private extension Array {
+  subscript(safe index: Int) -> Element? {
+    indices.contains(index) ? self[index] : nil
+  }
+}
+
+private extension URL {
+  var queryParameters: [String: String]? {
+    guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+          let items = components.queryItems else { return nil }
+    return Dictionary(uniqueKeysWithValues: items.compactMap { item in
+      item.value.map { (item.name, $0) }
+    })
   }
 }
