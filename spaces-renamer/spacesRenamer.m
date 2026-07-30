@@ -12,6 +12,32 @@
 #import <QuartzCore/QuartzCore.h>
 #import <Cocoa/Cocoa.h>
 #import <os/signpost.h>
+#import <unistd.h>
+
+static NSString *const SpacesRenamerPayloadVersion = @"1";
+static NSString *const SpacesRenamerInjectedNotification =
+    @"com.wiggly-sheets.SpacesRenamer.Injected";
+
+__attribute__((constructor))
+static void reportSpacesRenamerInjection(void) {
+  @autoreleasepool {
+    NSDictionary *status = @{
+      @"protocolVersion": @"1",
+      @"payloadVersion": SpacesRenamerPayloadVersion,
+      @"dockPID": @([[NSProcessInfo processInfo] processIdentifier]),
+      @"loadedAt": @([[NSDate date] timeIntervalSince1970])
+    };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:status options:0 error:nil];
+    NSString *path = [NSString stringWithFormat:
+        @"/tmp/spaces-renamer-injection-%u.json", getuid()];
+    [data writeToFile:path options:NSDataWritingAtomic error:nil];
+    [[NSDistributedNotificationCenter defaultCenter]
+        postNotificationName:SpacesRenamerInjectedNotification
+                      object:nil
+                    userInfo:status
+          deliverImmediately:YES];
+  }
+}
 
 static char OVERRIDDEN_STRING;
 static char OVERRIDDEN_WIDTH;

@@ -6,6 +6,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
   case profiles = "Profiles"
   case hotkey = "Hotkey"
   case automatic = "Naming"
+  case injection = "Injection"
 
   var id: Self { self }
   var icon: String {
@@ -14,6 +15,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     case .profiles: return "person.crop.rectangle.stack"
     case .hotkey: return "keyboard"
     case .automatic: return "wand.and.stars"
+    case .injection: return "syringe"
     }
   }
 }
@@ -36,10 +38,104 @@ struct SettingsView: View {
         case .profiles: ProfileSettingsView()
         case .hotkey: HotkeySettingsView()
         case .automatic: AutomaticNamingSettingsView()
+        case .injection: InjectionSettingsView()
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .padding(28)
+    }
+  }
+}
+
+private struct InjectionSettingsView: View {
+  @EnvironmentObject private var preferences: PreferencesStore
+  @EnvironmentObject private var injection: InjectionManager
+
+  var body: some View {
+    SettingsPage(
+      title: "Injection",
+      subtitle: "Keep the Dock hook loaded without a personal startup script"
+    ) {
+      HStack(alignment: .top, spacing: 12) {
+        Image(systemName: injection.state.symbol)
+          .font(.title2)
+          .foregroundStyle(statusColor)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(injection.state.title).font(.headline)
+          Text(injection.state.detail)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
+      }
+
+      if let warning = injection.bootArgumentsWarning {
+        Label(warning, systemImage: "exclamationmark.triangle")
+          .font(.callout)
+          .foregroundStyle(.orange)
+      }
+
+      Divider()
+
+      Toggle("Automatically inject after Dock restarts", isOn: Binding(
+        get: { preferences.automaticInjectionEnabled },
+        set: {
+          preferences.setAutomaticInjectionEnabled($0)
+          injection.refresh(injectIfEnabled: $0)
+        }
+      ))
+      .disabled(!helperAvailable)
+
+      Text("The app watches for a new Dock process and asks the installed helper to load only the bundled Spaces Renamer payload.")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+
+      HStack {
+        Button(helperAvailable ? "Update Helper…" : "Install Helper…") {
+          injection.installHelper()
+        }
+        .buttonStyle(.borderedProminent)
+
+        Button("Inject Now") {
+          injection.injectNow()
+        }
+        .disabled(!helperAvailable)
+
+        Button("Refresh") {
+          injection.refresh()
+        }
+
+        Spacer()
+
+        if helperAvailable {
+          Button("Uninstall Helper…", role: .destructive) {
+            injection.uninstallHelper()
+          }
+        }
+      }
+      .disabled(injection.operationInProgress)
+
+      Text("Installation is local and ad-hoc. macOS asks for an administrator password when installing, updating, or removing the root-owned helper. No paid Apple developer account is required.")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  private var helperAvailable: Bool {
+    switch injection.state {
+    case .helperNotInstalled, .unsupported:
+      return false
+    default:
+      return true
+    }
+  }
+
+  private var statusColor: Color {
+    switch injection.state {
+    case .injected: return .green
+    case .error, .unsupported: return .red
+    case .helperNotInstalled: return .secondary
+    default: return .accentColor
     }
   }
 }

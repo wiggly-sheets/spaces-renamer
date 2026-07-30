@@ -10,6 +10,7 @@
 #define SpacesRenamerBridge_h
 
 #import <Foundation/Foundation.h>
+#import "../Shared/SpacesRenamerInjectionXPC.h"
 
 int _CGSDefaultConnection();
 id CGSCopyManagedDisplaySpaces(int conn);
