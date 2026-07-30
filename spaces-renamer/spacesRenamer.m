@@ -11,16 +11,24 @@
 #import "ZKSwizzle.h"
 #import <QuartzCore/QuartzCore.h>
 #import <Cocoa/Cocoa.h>
+#import <os/signpost.h>
 
 static char OVERRIDDEN_STRING;
 static char OVERRIDDEN_WIDTH;
 static char OFFSET;
 static char NEW_X;
 static char TYPE;
+static char CACHED_TEXT_LAYER;
+static char OBSERVING_PROPERTIES_CHANGED;
 
 #define customNamesPlist [@"~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.plist" stringByExpandingTildeInPath]
 #define listOfSpacesPlist [@"~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.currentspaces.plist" stringByExpandingTildeInPath]
-#define spacesPath [@"~/Library/Preferences/com.apple.spaces.plist" stringByExpandingTildeInPath]
+
+@class Monitor;
+static NSArray<Monitor *> *cachedMonitors;
+static NSDate *cachedNamesModificationDate;
+static NSDate *cachedSpacesModificationDate;
+static BOOL plistCacheInitialized = NO;
 
 @interface Monitor : NSObject
 @property (nonatomic, strong) NSString *displayUUID;
@@ -28,6 +36,11 @@ static char TYPE;
 @end
 
 @implementation Monitor
+- (void)dealloc {
+  [_displayUUID release];
+  [_spaces release];
+  [super dealloc];
+}
 @end
 
 // Maximum online or active displays.
@@ -44,23 +57,37 @@ int monitorIndex = 0;
 @interface ECMaterialLayer : CALayer
 @end
 
-// Recursively invokes setFrame on the modified children so that they don't change positions on
-// swiping between different spaces.  Called on the master parent ECMaterialLayer at the end of
-// the override calculations in setFrame.  Also forces redraws, which makes the resizing work.
-// This is a hack.
+static os_log_t performanceLog(void) {
+  static os_log_t log;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    log = os_log_create("com.wiggly-sheets.spaces-renamer", "DockHook");
+  });
+  return log;
+}
+
+static Class textLayerClass(void) {
+  static Class layerClass;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    layerClass = NSClassFromString(@"ECTextLayer");
+  });
+  return layerClass;
+}
+
+// Refresh only the Space-label subtree whose associated layout values changed.
+// The old implementation walked almost the entire Mission Control layer tree.
 static void refreshFrames(CALayer *frame) {
-  for (int i = 0; i < frame.sublayers.count; i++) {
-    [frame.sublayers[i] setFrame:frame.sublayers[i].frame];
-    refreshFrames(frame.sublayers[i]);
+  for (CALayer *layer in frame.sublayers) {
+    [layer setFrame:layer.frame];
+    refreshFrames(layer);
   }
 }
 
-static void refreshFramesSur(CALayer *frame, CALayer* exception) {
-  for (CALayer *layer in frame.sublayers) {
-    if (![layer isEqualTo:exception]) {
-      [layer setFrame:layer.frame];
-    }
-    refreshFramesSur(layer, exception);
+static void refreshChangedViews(NSArray<CALayer *> *views) {
+  for (CALayer *view in views) {
+    [view setFrame:view.frame];
+    refreshFrames(view);
   }
 }
 
@@ -69,74 +96,121 @@ static void assign(id a, void *key, id assigned) {
   objc_setAssociatedObject(a, key, assigned, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+static BOOL assignIfChanged(id object, void *key, id value) {
+  id existing = objc_getAssociatedObject(object, key);
+  if (existing == value || [existing isEqual:value]) {
+    return NO;
+  }
+  assign(object, key, value);
+  if (key != &NEW_X) {
+    assign(object, &NEW_X, nil);
+  }
+  return YES;
+}
+
+static BOOL isDescendant(CALayer *candidate, CALayer *ancestor) {
+  for (CALayer *layer = candidate; layer != nil; layer = layer.superlayer) {
+    if (layer == ancestor) {
+      return YES;
+    }
+  }
+  return NO;
+}
+
 // Gets the ECTextLayer child from a starting view
 // Good for when you don't care whether it's selected or not
 static CATextLayer *getTextLayer(CALayer *view) {
+  CATextLayer *cached = objc_getAssociatedObject(view, &CACHED_TEXT_LAYER);
+  if (cached != nil && isDescendant(cached, view)) {
+    return cached;
+  }
+  if (cached != nil) {
+    assign(view, &CACHED_TEXT_LAYER, nil);
+  }
+
   CATextLayer *layer = nil;
-  if (view.class == NSClassFromString(@"ECTextLayer")) {
+  if (view.class == textLayerClass()) {
     layer = (CATextLayer *)view;
   } else {
-    for (int i = 0; i < view.sublayers.count; i++) {
-      CATextLayer *tempLayer = getTextLayer(view.sublayers[i]);
+    for (CALayer *sublayer in view.sublayers) {
+      CATextLayer *tempLayer = getTextLayer(sublayer);
       if (tempLayer != nil) {
         layer = tempLayer;
         break;
       }
     }
   }
+  if (layer != nil) {
+    assign(view, &CACHED_TEXT_LAYER, layer);
+  }
   return layer;
 }
 
 // Given a view, sets the OFFSET variable for the text layer's parent, and siblings
 // if 'modify' is TRUE, it will add the OFFSET variables, otherwise it will overwrite it
-static void setOffset(CALayer *view, double offset, bool modify) {
+static BOOL setOffset(CALayer *view, double offset, bool modify) {
   CATextLayer *textLayer = getTextLayer(view);
+  BOOL changed = NO;
 
   if (textLayer != nil) {
     CALayer *parent = textLayer.superlayer;
     if (modify) {
       id possibleOffset = objc_getAssociatedObject(parent, &OFFSET);
       if (possibleOffset && [possibleOffset isKindOfClass:[NSNumber class]]) {
-        assign(parent, &OFFSET, [NSNumber numberWithDouble:offset + [possibleOffset doubleValue]]);
+        changed |= assignIfChanged(
+          parent,
+          &OFFSET,
+          [NSNumber numberWithDouble:offset + [possibleOffset doubleValue]]
+        );
       }
     } else {
-      assign(parent, &OFFSET, [NSNumber numberWithDouble:offset]);
+      changed |= assignIfChanged(parent, &OFFSET, [NSNumber numberWithDouble:offset]);
     }
-    for (int i = 0; i < parent.sublayers.count; i++) {
+    for (CALayer *sublayer in parent.sublayers) {
       if (modify) {
-        id possibleOffset = objc_getAssociatedObject(parent.sublayers[i], &OFFSET);
+        id possibleOffset = objc_getAssociatedObject(sublayer, &OFFSET);
         if (possibleOffset && [possibleOffset isKindOfClass:[NSNumber class]]) {
-          assign(parent.sublayers[i], &OFFSET, [NSNumber numberWithDouble:offset + [possibleOffset doubleValue]]);
+          changed |= assignIfChanged(
+            sublayer,
+            &OFFSET,
+            [NSNumber numberWithDouble:offset + [possibleOffset doubleValue]]
+          );
         }
       } else {
-        assign(parent.sublayers[i], &OFFSET, [NSNumber numberWithDouble:offset]);
+        changed |= assignIfChanged(sublayer, &OFFSET, [NSNumber numberWithDouble:offset]);
       }
     }
   }
+  return changed;
 }
 
 // Finds the text layer, and sets the overridden string and width properties
 // to the text layer, its parent, and its siblings.
 // Additionally sets the type for determining centering behavior
-static void overrideTextLayer(CALayer *view, NSString *newString, double width, NSString *type) {
+static BOOL overrideTextLayer(CALayer *view, NSString *newString, double width, NSString *type) {
   CATextLayer *textLayer = getTextLayer(view);
+  BOOL changed = NO;
 
   if (textLayer != nil) {
-    textLayer.string = newString;
-    CALayer *parent = textLayer.superlayer;
-    assign(parent, &OVERRIDDEN_STRING, newString);
-    assign(parent, &TYPE, type);
-    if (width != -1) {
-      assign(parent, &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
+    if (![textLayer.string isEqual:newString]) {
+      textLayer.string = newString;
+      changed = YES;
     }
-    for (int i = 0; i < parent.sublayers.count; i++) {
-      assign(parent.sublayers[i], &OVERRIDDEN_STRING, newString);
-      assign(parent, &TYPE, type);
+    CALayer *parent = textLayer.superlayer;
+    changed |= assignIfChanged(parent, &OVERRIDDEN_STRING, newString);
+    changed |= assignIfChanged(parent, &TYPE, type);
+    if (width != -1) {
+      changed |= assignIfChanged(parent, &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
+    }
+    for (CALayer *sublayer in parent.sublayers) {
+      changed |= assignIfChanged(sublayer, &OVERRIDDEN_STRING, newString);
+      changed |= assignIfChanged(sublayer, &TYPE, type);
       if (width != -1) {
-        assign(parent.sublayers[i], &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
+        changed |= assignIfChanged(sublayer, &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
       }
     }
   }
+  return changed;
 }
 
 // Gets the text area, and renders how large it would be with the new dimensions
@@ -157,21 +231,41 @@ static double getTextSizeHelper(CATextLayer *textLayer, NSString *string) {
 static double getTextSize(CALayer *view, NSString *string) {
   CATextLayer *textLayer = getTextLayer(view);
   if (textLayer != nil) {
+    static NSCache<NSString *, NSNumber *> *widthCache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+      widthCache = [[NSCache alloc] init];
+      widthCache.countLimit = 512;
+    });
+    NSString *cacheKey = [NSString stringWithFormat:
+      @"%p|%.3f|%@",
+      textLayer.font,
+      textLayer.fontSize,
+      string
+    ];
+    NSNumber *cachedWidth = [widthCache objectForKey:cacheKey];
+    if (cachedWidth != nil) {
+      return cachedWidth.doubleValue;
+    }
+
     // Works around bug where CTFramesetterSuggestFrameSizeWithConstraints returns 0 for
     // strings entirely composed of whitespace
-    return getTextSizeHelper(textLayer, [string stringByAppendingString:@".."]) - getTextSizeHelper(textLayer, @".");
+    double width = getTextSizeHelper(textLayer, [string stringByAppendingString:@".."])
+      - getTextSizeHelper(textLayer, @".");
+    [widthCache setObject:@(width) forKey:cacheKey];
+    return width;
   }
   return -1;
 }
 
 // The highlighted space has 2 sublayers, while as a normal space only has 1
 static int getSelected(NSArray<CALayer *> *views) {
-  NSUInteger selectedIndex = [views indexOfObjectPassingTest:
-                              ^(CALayer *layer, NSUInteger idx, BOOL *stop) {
-    return (BOOL)(layer.sublayers.count > 1);
-  }];
-
-  return selectedIndex == NSNotFound ? -1 : (int)selectedIndex;
+  for (NSUInteger index = 0; index < views.count; index++) {
+    if (views[index].sublayers.count > 1) {
+      return (int)index;
+    }
+  }
+  return -1;
 }
 
 /*
@@ -179,24 +273,54 @@ static int getSelected(NSArray<CALayer *> *views) {
  2. Load the listOfSpacesPlist to get the current list of spaces
  3. Crosslist and return the custom names for each plist, and whether it's selected
  */
-static NSMutableArray<Monitor *> *getNamesFromPlist() {
+static NSDate *modificationDate(NSString *path) {
+  NSDictionary *attributes = [[NSFileManager defaultManager]
+    attributesOfItemAtPath:path
+    error:nil
+  ];
+  return attributes[NSFileModificationDate];
+}
+
+static BOOL nullableObjectsEqual(id left, id right) {
+  return left == right || (left != nil && [left isEqual:right]);
+}
+
+static NSArray<Monitor *> *getNamesFromPlist(BOOL *cacheHit) {
+  NSDate *namesModificationDate = modificationDate(customNamesPlist);
+  NSDate *spacesModificationDate = modificationDate(listOfSpacesPlist);
+  if (
+    plistCacheInitialized
+    && nullableObjectsEqual(namesModificationDate, cachedNamesModificationDate)
+    && nullableObjectsEqual(spacesModificationDate, cachedSpacesModificationDate)
+  ) {
+    if (cacheHit != NULL) {
+      *cacheHit = YES;
+    }
+    return cachedMonitors ?: @[];
+  }
+
+  if (cacheHit != NULL) {
+    *cacheHit = NO;
+  }
+  os_signpost_event_emit(
+    performanceLog(),
+    OS_SIGNPOST_ID_EXCLUSIVE,
+    "ReloadPlists"
+  );
+
   NSDictionary *dictOfNames = [NSDictionary dictionaryWithContentsOfFile:customNamesPlist];
-  if (!dictOfNames) {
-    return [NSMutableArray arrayWithCapacity:0];
-  }
-  NSDictionary *dict = [dictOfNames valueForKey:@"spaces_renaming"];
   NSDictionary *spacesCustom = [NSDictionary dictionaryWithContentsOfFile:listOfSpacesPlist];
-  if (!spacesCustom) {
-    return [NSMutableArray arrayWithCapacity:0];
-  }
+  NSDictionary *dict = [dictOfNames valueForKey:@"spaces_renaming"];
   NSArray *listOfMonitors = [spacesCustom valueForKeyPath:@"Monitors"];
 
-  NSMutableArray *newNames = [NSMutableArray arrayWithCapacity:listOfMonitors.count];
+  NSMutableArray<Monitor *> *newNames = [NSMutableArray
+    arrayWithCapacity:listOfMonitors.count
+  ];
 
   for (int i = 0; i < listOfMonitors.count; i++) {
     NSArray *listOfSpaces = [listOfMonitors[i] valueForKeyPath:@"Spaces"];
     NSString *selected = [listOfMonitors[i] valueForKeyPath:@"Current Space.uuid"];
-    Monitor *monitor = [[Monitor alloc] init];
+    Monitor *monitor = [[[Monitor alloc] init] autorelease];
     monitor.displayUUID = [listOfMonitors[i] valueForKeyPath:@"Display Identifier"];
 
     NSMutableArray *spaceNames = [NSMutableArray arrayWithCapacity:listOfSpaces.count];
@@ -205,19 +329,25 @@ static NSMutableArray<Monitor *> *getNamesFromPlist() {
       id name = [dict objectForKey:uuid];
       NSMutableDictionary *screenDict = [NSMutableDictionary dictionary];
       screenDict[@"selected"] = @([uuid isEqualToString:selected]);
-      spaceNames[j] = screenDict;
       if (name != nil) {
         screenDict[@"name"] = name;
       } else {
         screenDict[@"name"] = @"";
       }
-      spaceNames[j] = screenDict;
+      [spaceNames addObject:screenDict];
     }
     monitor.spaces = spaceNames;
-    newNames[i] = monitor;
+    [newNames addObject:monitor];
   }
 
-  return newNames;
+  [cachedMonitors release];
+  cachedMonitors = [newNames copy];
+  [cachedNamesModificationDate release];
+  cachedNamesModificationDate = [namesModificationDate copy];
+  [cachedSpacesModificationDate release];
+  cachedSpacesModificationDate = [spacesModificationDate copy];
+  plistCacheInitialized = YES;
+  return cachedMonitors;
 }
 
 ZKSwizzleInterface(_SRCALayer, CALayer, CALayer);
@@ -225,11 +355,11 @@ ZKSwizzleInterface(_SRCALayer, CALayer, CALayer);
 - (void)setFrame:(CGRect)arg1 {
   CGRect orig = arg1;
   id possibleWidth = objc_getAssociatedObject(self, &OVERRIDDEN_WIDTH);
-  if (possibleWidth && [possibleWidth isKindOfClass:[NSNumber class]] && self.class == NSClassFromString(@"CALayer")) {
+  if (possibleWidth && [possibleWidth isKindOfClass:[NSNumber class]] && self.class == [CALayer class]) {
     arg1.size.width = [possibleWidth doubleValue] + 20;
   }
 
-  int textIndex = self.sublayers.lastObject.class == NSClassFromString(@"ECTextLayer")
+  int textIndex = self.sublayers.lastObject.class == textLayerClass()
   ? (int)self.sublayers.count - 1
   : -1;
 
@@ -265,13 +395,15 @@ ZKSwizzleInterface(_SRCALayer, CALayer, CALayer);
 ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
 @implementation _SRECTextLayer
 - (void)setFrame:(CGRect)arg1 {
-  @try {
-    [self removeObserver:self forKeyPath:@"propertiesChanged" context:nil];
-  } @catch(id anException) {}
-  [self addObserver:self
-         forKeyPath:@"propertiesChanged"
-            options:NSKeyValueObservingOptionNew
-            context:nil];
+  if (![objc_getAssociatedObject(self, &OBSERVING_PROPERTIES_CHANGED) boolValue]) {
+    @try {
+      [self addObserver:self
+             forKeyPath:@"propertiesChanged"
+                options:NSKeyValueObservingOptionNew
+                context:&OBSERVING_PROPERTIES_CHANGED];
+      assign(self, &OBSERVING_PROPERTIES_CHANGED, @YES);
+    } @catch(id anException) {}
+  }
 
   id possibleWidth = objc_getAssociatedObject(self, &OVERRIDDEN_WIDTH);
   if (possibleWidth && [possibleWidth isKindOfClass:[NSNumber class]]) {
@@ -281,14 +413,24 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
   ZKOrig(void, arg1);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-missing-super-calls"
 -(void)dealloc {
-  @try {
-    [self removeObserver:self forKeyPath:@"propertiesChanged" context:nil];
-  } @catch(id anException) {}
+  if ([objc_getAssociatedObject(self, &OBSERVING_PROPERTIES_CHANGED) boolValue]) {
+    @try {
+      [self removeObserver:self
+                forKeyPath:@"propertiesChanged"
+                   context:&OBSERVING_PROPERTIES_CHANGED];
+    } @catch(id anException) {}
+  }
   ZKOrig(void);
 }
+#pragma clang diagnostic pop
 
 -(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+  if (context != &OBSERVING_PROPERTIES_CHANGED) {
+    return;
+  }
   id overridden = objc_getAssociatedObject(self, &OVERRIDDEN_STRING);
   if ([overridden isKindOfClass:[NSString class]] && ![self.string isEqualToString:overridden]) {
     self.string = overridden;
@@ -319,37 +461,57 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
     } else {
       rootLayer = self;
     }
-    NSArray<CALayer *> *unexpandedViews = rootLayer.sublayers[rootLayer.sublayers.count - 1].sublayers[0].sublayers;
-    NSArray<CALayer *> *expandedViews = rootLayer.sublayers[rootLayer.sublayers.count - 1].sublayers[1].sublayers;
+    CALayer *switcherContainer = rootLayer.sublayers.lastObject;
+    if (switcherContainer.sublayers.count < 2) {
+      ZKOrig(void, arg1);
+      return;
+    }
+    NSArray<CALayer *> *unexpandedViews = switcherContainer.sublayers[0].sublayers;
+    NSArray<CALayer *> *expandedViews = switcherContainer.sublayers[1].sublayers;
 
     int numMonitors = MAX((int)unexpandedViews.count, (int)expandedViews.count);
 
     // Get which of the spaces in the current dock is selected
     int selected = getSelected((!unexpandedViews || !unexpandedViews.count) ? expandedViews : unexpandedViews);
 
-    // Get all of the names
-    NSMutableArray<Monitor *> *names = getNamesFromPlist();
+    os_log_t log = performanceLog();
+    os_signpost_id_t signpostID = os_signpost_id_generate(log);
+    os_signpost_interval_begin(log, signpostID, "ApplyNames");
 
+    // Get all of the names
+    BOOL cacheHit = NO;
+    NSArray<Monitor *> *names = getNamesFromPlist(&cacheHit);
     if (names.count == 0) {
+      os_signpost_interval_end(
+        log,
+        signpostID,
+        "ApplyNames",
+        "cache_hit=%d changed=0 spaces=0",
+        cacheHit
+      );
       ZKOrig(void, arg1);
       return;
     }
 
     // Take a best guess at which monitor it is
-    NSMutableArray *possibleMonitors = [[NSMutableArray alloc] init];
+    int matchingMonitor = -1;
+    int matchingMonitorCount = 0;
     for (int i = 0; i < names.count; i++) {
       if (
           names[i].spaces.count == numMonitors && // Same number of monitors
+          selected >= 0 &&
+          selected < names[i].spaces.count &&
           [names[i].spaces[selected][@"selected"] boolValue] // Same index is selected
           ) {
-        [possibleMonitors addObject:[NSNumber numberWithInt:i]];
+        matchingMonitor = i;
+        matchingMonitorCount += 1;
       }
     }
     // If only one monitor, good to go
     // If more than one monitor, but the sizes are different we can usually identify it
     // Otherwise just go with the same cycling as it appears to have been last time it was good to go
-    if (possibleMonitors.count == 1) {
-      monitorIndex = [possibleMonitors[0] intValue];
+    if (matchingMonitorCount == 1) {
+      monitorIndex = matchingMonitor;
     } else {
       // If the size of the bar only matches one of the monitors, then use that one
       NSString *displayUUID = [self getDisplayUUID:arg1];
@@ -361,10 +523,11 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
         }
       }
     }
-    [possibleMonitors release];
-
     monitorIndex = monitorIndex % names.count;
+    NSUInteger processedSpaceCount = names[monitorIndex].spaces.count;
 
+    BOOL layoutChanged = NO;
+    NSMutableArray<CALayer *> *viewsNeedingRefresh = [NSMutableArray array];
     double unexpandedOffset = 0;
     for (int i = 0; i < names[monitorIndex].spaces.count; i++) {
       NSString *name = names[monitorIndex].spaces[i][@"name"];
@@ -374,18 +537,38 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
         if (i < expandedViews.count) {
           double textSize = getTextSize(expandedViews[i], name);
           // Don't have the expanded view string overlap other ones
-          overrideTextLayer(expandedViews[i], name, MIN(textSize, expandedViews[i].frame.size.width), @"expanded");
+          if (overrideTextLayer(
+            expandedViews[i],
+            name,
+            MIN(textSize, expandedViews[i].frame.size.width),
+            @"expanded"
+          )) {
+            layoutChanged = YES;
+            [viewsNeedingRefresh addObject:expandedViews[i]];
+          }
         }
         // Unexpanded
         if (i < unexpandedViews.count) {
           double textSize = getTextSize(unexpandedViews[i], name);
-          overrideTextLayer(unexpandedViews[i], name, textSize, @"unexpanded");
-          setOffset(unexpandedViews[i], unexpandedOffset, false);
+          BOOL viewChanged = overrideTextLayer(
+            unexpandedViews[i],
+            name,
+            textSize,
+            @"unexpanded"
+          );
+          viewChanged |= setOffset(unexpandedViews[i], unexpandedOffset, false);
+          if (viewChanged) {
+            layoutChanged = YES;
+            [viewsNeedingRefresh addObject:unexpandedViews[i]];
+          }
           unexpandedOffset += (textSize - getTextLayer(unexpandedViews[i]).bounds.size.width);
         }
       } else {
         if (i < unexpandedViews.count) {
-          setOffset(unexpandedViews[i], unexpandedOffset, false);
+          if (setOffset(unexpandedViews[i], unexpandedOffset, false)) {
+            layoutChanged = YES;
+            [viewsNeedingRefresh addObject:unexpandedViews[i]];
+          }
         }
       }
     }
@@ -393,18 +576,31 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
     // Make sure that it's centered in the bar when unexpanded
     for (int i = 0; i < names[monitorIndex].spaces.count; i++) {
       if (i < unexpandedViews.count) {
-        setOffset(unexpandedViews[i], -unexpandedOffset/2, true);
+        if (setOffset(unexpandedViews[i], -unexpandedOffset/2, true)) {
+          layoutChanged = YES;
+          if (![viewsNeedingRefresh containsObject:unexpandedViews[i]]) {
+            [viewsNeedingRefresh addObject:unexpandedViews[i]];
+          }
+        }
       }
     }
 
     monitorIndex += 1;
 
-    // So that it doesn't change sizes on switching spaces
-    if (!bigSurOrNewer) {
-      refreshFrames(rootLayer);
-    } else {
-      refreshFramesSur(rootLayer, self);
+    // Apply frame overrides only to label subtrees whose associated values changed.
+    if (layoutChanged) {
+      refreshChangedViews(viewsNeedingRefresh);
     }
+    os_signpost_interval_end(
+      log,
+      signpostID,
+      "ApplyNames",
+      "cache_hit=%d changed=%d spaces=%lu refreshed_views=%lu",
+      cacheHit,
+      layoutChanged,
+      (unsigned long)processedSpaceCount,
+      (unsigned long)viewsNeedingRefresh.count
+    );
   }
   ZKOrig(void, arg1);
 }
@@ -416,7 +612,7 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
     return false;
   }
   // Is a child of CALayer
-  if (self.superlayer.class != NSClassFromString(@"CALayer")) {
+  if (self.superlayer.class != [CALayer class]) {
     return false;
   }
 
@@ -462,9 +658,16 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
     }
   }
   // Go from the CGDirectDisplayID to the Display Identifier using private APIs
+  if (matchingScreen == 0) {
+    return nil;
+  }
   CFUUIDRef screenUuid = CGDisplayCreateUUIDFromDisplayID(matchingScreen);
+  if (screenUuid == nil) {
+    return nil;
+  }
   CFStringRef uuid = CFUUIDCreateString(nil, screenUuid);
-  return (__bridge NSString *)uuid;
+  CFRelease(screenUuid);
+  return [(__bridge NSString *)uuid autorelease];
 }
 
 // ===============

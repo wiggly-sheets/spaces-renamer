@@ -24,30 +24,29 @@ static SEL destinationSelectorForSelector(SEL cmd, Class dst) {
 }
 
 static Class classFromInfo(const char *info) {
-  NSUInteger bracket_index = -1;
-  for (NSUInteger i = 0; i < strlen(info); i++) {
-    if (info[i] == '[') {
-      bracket_index = i;
-      break;
-    }
-  }
-  bracket_index++;
-  
-  if (bracket_index == -1) {
+  const char *openingBracket = strchr(info, '[');
+  if (openingBracket == NULL) {
     [NSException raise:@"Failed to parse info" format:@"Couldn't find swizzle class for info: %s", info];
     return NULL;
   }
-  
-  char after_bracket[255];
-  memcpy(after_bracket, &info[bracket_index], strlen(info) - bracket_index - 1);
-  
-  for (NSUInteger i = 0; i < strlen(info); i++) {
-    if (after_bracket[i] == ' ') {
-      after_bracket[i] = '\0';
-    }
+
+  const char *classStart = openingBracket + 1;
+  const char *classEnd = strchr(classStart, ' ');
+  if (classEnd == NULL) {
+    [NSException raise:@"Failed to parse info" format:@"Couldn't find class terminator for info: %s", info];
+    return NULL;
   }
-  
-  return objc_getClass(after_bracket);
+
+  size_t classNameLength = (size_t)(classEnd - classStart);
+  if (classNameLength == 0 || classNameLength >= 255) {
+    [NSException raise:@"Failed to parse info" format:@"Invalid swizzle class in info: %s", info];
+    return NULL;
+  }
+
+  char className[255];
+  memcpy(className, classStart, classNameLength);
+  className[classNameLength] = '\0';
+  return objc_getClass(className);
 }
 
 // takes __PRETTY_FUNCTION__ for info which gives the name of the swizzle source class
@@ -184,8 +183,10 @@ static BOOL classIgnoresTypes(Class cls) {
   }
   
   if (class_respondsToSelector(cls, @selector(_ZK_ignoreTypes))) {
-    Class cls2 = class_createInstance(cls, 0);
-    return [cls2 _ZK_ignoreTypes];
+    id instance = class_createInstance(cls, 0);
+    BOOL ignoresTypes = [instance _ZK_ignoreTypes];
+    [instance release];
+    return ignoresTypes;
   }
   
   return NO;
