@@ -48,6 +48,15 @@ The supplied injector is currently `arm64e`-only. The Xcode Dock-bundle target a
 
 The injector workflow requires reduced macOS security protections. Review the script and understand the SIP/AMFI implications before running it. Building the app does not run the injector or restart Dock.
 
+### Profiling the Dock hook
+
+The injected bundle emits `os_signpost` data under subsystem
+`com.wiggly-sheets.spaces-renamer` and category `DockHook`. Attach Instruments
+to Dock with the Points of Interest or Time Profiler instrument, then open and
+close Mission Control. `ApplyNames` intervals report cache hits, whether layout
+state changed, the number of Spaces processed, and how many label subtrees were
+refreshed. `ReloadPlists` events identify cache invalidations.
+
 ## Usage
 
 - Left-click the menu bar item to open the renamer.

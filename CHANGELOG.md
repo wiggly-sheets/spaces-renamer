@@ -20,6 +20,7 @@
 - Dynamic naming uses yabai's live Space labels or spaces/windows data directly.
 - Automatic names now update from debounced yabai window, Space, display, and Mission Control events instead of periodic polling.
 - yabai application visibility and Space/display change signals now reconcile dynamic names without polling.
+- The injected Dock hook now caches unchanged plist data, discovered text layers, and CoreText measurements; registers observers once; and refreshes only changed Space-label subtrees.
 
 ### Fixed
 

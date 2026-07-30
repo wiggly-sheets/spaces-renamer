@@ -76,10 +76,22 @@ _Pragma("clang diagnostic pop")
 //// Core Macros (For fine-tuned Use)
 ////////////////////////////////////////////////////////////////////////////////
 // returns the original implementation of the swizzled function or null or not found
-#define ZKOrig(TYPE, ...) ((TYPE (*)(id, SEL WRAP_LIST(__VA_ARGS__)))(ZKOriginalImplementation(self, _cmd, __PRETTY_FUNCTION__)))(self, _cmd, ##__VA_ARGS__)
+#define ZKOrig(TYPE, ...) ({\
+  static ZKIMP implementation = NULL;\
+  if (implementation == NULL) {\
+    implementation = ZKOriginalImplementation(self, _cmd, __PRETTY_FUNCTION__);\
+  }\
+  ((TYPE (*)(id, SEL WRAP_LIST(__VA_ARGS__)))(implementation))(self, _cmd, ##__VA_ARGS__);\
+})
 
 // returns the original implementation of the superclass of the object swizzled
-#define ZKSuper(TYPE, ...) ((TYPE (*)(id, SEL WRAP_LIST(__VA_ARGS__)))(ZKSuperImplementation(self, _cmd, __PRETTY_FUNCTION__)))(self, _cmd, ##__VA_ARGS__)
+#define ZKSuper(TYPE, ...) ({\
+  static ZKIMP implementation = NULL;\
+  if (implementation == NULL) {\
+    implementation = ZKSuperImplementation(self, _cmd, __PRETTY_FUNCTION__);\
+  }\
+  ((TYPE (*)(id, SEL WRAP_LIST(__VA_ARGS__)))(implementation))(self, _cmd, ##__VA_ARGS__);\
+})
 
 #define _ZKSwizzleInterfaceConditionally(CLASS_NAME, TARGET_CLASS, SUPERCLASS, GROUP, IMMEDIATELY) \
 @interface _$ ## CLASS_NAME : SUPERCLASS @end\
@@ -169,4 +181,3 @@ BOOL _ZKSwizzleClass(Class cls);
 
 __END_DECLS
 #endif
-
