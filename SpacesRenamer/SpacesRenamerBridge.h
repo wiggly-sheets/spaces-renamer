@@ -11,12 +11,7 @@
 
 #import <Foundation/Foundation.h>
 
-typedef int CGSConnectionID;
-
 int _CGSDefaultConnection();
 id CGSCopyManagedDisplaySpaces(int conn);
-
-CGSConnectionID CGSMainConnectionID(void);
-extern long CGSManagedDisplayGetCurrentSpace(CGSConnectionID cid, CFStringRef uuid);
 
 #endif /* SpacesRenamerBridge_h */

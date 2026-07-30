@@ -1,107 +1,76 @@
-<h1 align="center">
-  <img src="/SpacesRenamer/Assets.xcassets/AppIcon.appiconset/Icon-1.png?raw=true" width="20%" alt=""/>
-  <p align="center">Spaces Renamer</p>
-</h1>
+# Spaces Renamer
 
-Spaces Renamer is a combination of an application and SIMBL plugin to allow you to rename your spaces.
+Spaces Renamer gives macOS Spaces persistent, useful names in Mission Control. The menu-bar app is built with SwiftUI; the injected Dock bundle retains the existing Objective-C runtime integration.
 
-<p align="center">
-  <img src="smallView.jpg" height="45" ><br>
-  <i>The compressed view after pressing F3</i>
-</p>
+## Features
 
-<p align="center">
-  <img src="largeView.jpg" height="80" ><br>
-  <i>The expanded view after hovering</i>
-</p>
+- SwiftUI renamer popover and settings window
+- Work and Home profiles by default, with custom profiles
+- Instant profile switching from the menu bar
+- Configurable global hotkey (default: Control–Option–R)
+- Three naming modes: manual profiles, apps occupying each Space, or live yabai Space labels
+- Optional per-window app names, allowing repeated names such as `Safari · Safari`
+- Native macOS launch-at-login support
+- Native prompt to move the app into `/Applications`
+- Universal app binary (`arm64` + `x86_64`)
+- Universal Dock bundle (`arm64e` + `x86_64`)
+- Modern app icon and native template menu-bar icon
 
-<p align="center">
-  <img src="renameView.jpg" height="100" ><br>
-  <i>The interface for renaming the spaces</i>
-</p>
+Manual names are stored per Space UUID. Switching profiles immediately republishes the active mapping to the legacy `spaces_renaming` plist key, so the existing Dock injector remains compatible without restarting Spaces Renamer.
 
-Spaces Renamer supports multiple monitors, and highlights the current space in each monitor with an outline.  Here it is [in a video](https://vimeo.com/264878100) if you want to see it in action.
+## Build
 
-### The Problem
-I want to be able to rename my spaces.  While TotalSpaces has this functionality, it's not free, and it has a bunch of other features that I'm not really interested in.
+Requires Xcode 15 or newer and macOS 13 or newer.
 
-### The Solution
-This is a SIMBL plugin and an application.  The SIMBL plugin handles renaming spaces from a saved plist.  The application adds an icon to the status bar that allows you to rename the spaces and update the plist.
-
-## Installation:
-> [!WARNING]  
-> This will not work for M1/M2/Apple Silicon Macs, and may not work for macOS 14.4+. Please scroll down to separate install instructions.
-
-<ol>
-  <li>Download <a href="https://www.macenhance.com/macforge?macforge://github.com/w0lfschild/macplugins/raw/master/com.alexbeals.SpacesRenamer">MacForge</a>, the newest incarnation of mySIMBL.
-    <ul><li>If it's not compatible, you can download the <a href="https://github.com/w0lfschild/mySIMBL/releases/latest">latest mySIMBL version</a>.</li></ul>
-  </li>
-  <li>
-    Make sure that it's installed, including disabling SIP (use the command <code>csrutil disable</code> in Recovery mode by <a href="https://www.imore.com/how-turn-system-integrity-protection-macos">following this tutorial</a>).  There are additional commands for macOS Catalina, with details under the 'System' tab of MacForge.  After it's installed you can partially re-enable SIP using <code>csrutil enable --without debug --without fs</code>. If you fully enable SIP, Spaces Renamer won't work.
-  </li>
-  <li>
-    Download <a href="https://github.com/dado3212/spaces-renamer/raw/master/build/spaces-renamer.zip">Spaces Renamer</a>.
-  </li>
-  <li>
-    Unzip the downloaded .zip file.
-  </li>
-  <li>
-    Open <code>spaces-renamer.bundle</code> with <code>MacForge.app</code>, or simply drag and drop it in to install it.
-  </li>
-  <li>
-    Run <code>killall -9 Dock</code> in Terminal to restart the Dock application.
-  </li>
-  <li>
-    Run the application 'SpacesRenamer'.  Accept the option to move it to /Applications.  It should be automatically added to your Login Items, but you can check to confirm by going to "System Preferences" > "Users & Groups" > "Login Items" and adding it manually if necessary.
-  </li>
-  <li>
-    Open the 'Spaces Renamer' icon in the top bar and click 'Update Names' (doesn't matter what's in there).  Otherwise the top bar may not appear!
-  </li>
-  </ol>
-
-## Installation (M1/M2/Apple Silicon)
-
-> [!NOTE]  
-> While this has been stable for months, it relies on a beta version of MacForge, so there may be compatibility issues with other plugins.
-
-1. Fully uninstall any current versions of MacForge. This means making sure that MacForgeHelper is quit, the application is deleted, and the Trash is emptied.
-2. Run some commands to clean up some of the lingering folders. **❗️THIS WILL DELETE ANY INSTALLED PLUGINS❗️**.
-```
-sudo launchctl unload /Library/LaunchDaemons/com.macenhance.MacForge.Injector.plist
-sudo rm -rf "/Library/Application Support/MacEnhance"
-sudo rm /Library/LaunchDaemons/com.macenhance.MacForge.Injector.plist
-sudo rm /Library/PrivilegedHelperTools/com.macenhance.MacForge.Injector
-```
-3. Download this zip file ([spaces-renamer.zip](https://github.com/user-attachments/files/16735430/spaces-renamer.zip)). It contains the SpacesRenamer app, spaces-renamer.bundle (1.11.1), and MacForge (an unofficial 1.2.0 Beta 2). **If you're on version macOS 14.4+** you should use [spaces-renamer.zip](https://github.com/user-attachments/files/20972723/spaces-renamer.zip)
- instead, which has MacForge 1.2.2 (4) and should work. You can also try this on non-M1/M2/Apple Silicon Macs.
-4. Open SpacesRenamer.  Accept the option to move it to /Applications.  It should be automatically added to your Login Items, but you can check to confirm by going to "System Preferences" > "Users & Groups" > "Login Items" and adding it manually if necessary.
-5. Open MacForge, which will copy itself to /Applications. Go through all the install instructions and permssions around `csrutil` by disabling SIP (use the command <code>csrutil disable</code> in Recovery mode by <a href="https://www.imore.com/how-turn-system-integrity-protection-macos">following this tutorial</a>).  There are additional commands for macOS Catalina, with details under the 'System' tab of MacForge.  After it's installed you can partially re-enable SIP using <code>csrutil enable --without debug --without fs --without nvram --without kext</code> (thanks to @serkanozkul <a href="https://github.com/dado3212/spaces-renamer/issues/75#issuecomment-1493355618">here</a>). If you fully enable SIP, Spaces Renamer won't work.
-6. Copy the `spaces-renamer.bundle` version to `/Library/Application Support/MacEnhance/Plugins` and run `killall -9 Dock`.
-7. Open the 'Spaces Renamer' icon in the top bar and click 'Update Names' (doesn't matter what's in there).  Otherwise the top bar may not appear!
-
-## Uninstall
-
-You can trivially uninstall SpacesRenamer by using MacForge to delete the plugin and dragging the app to the Trash. If you want to fully remove MacForge and SpacesRenamer you can do the following:
-1. Fully uninstall MacForge. Quit MacForgeHelper in 'Activity Monitor', and delete the application.
-2. Delete the SpacesRenamer app by dragging it to the Trash.
-3. Empty the Trash.
-4. Run the following commands. This will delete all installed plugins.
-```
-sudo launchctl unload /Library/LaunchDaemons/com.macenhance.MacForge.Injector.plist
-sudo rm -rf "/Library/Application Support/MacEnhance"
-sudo rm /Library/LaunchDaemons/com.macenhance.MacForge.Injector.plist
-sudo rm /Library/PrivilegedHelperTools/com.macenhance.MacForge.Injector
-sudo rm -rf ~/Library/Containers/com.alexbeals.spacesrenamer
+```bash
+make universal
 ```
 
-### Debugging Common Issues
+Build products:
 
-**MacForge is automatically downgrading**  
-If you are running into issues where MacForge is downgrading, try uninstall MacForge by deleting the app and emptying Trash, running the `purge.sh` file, restarting your computer, and then installing MacForge again. Make sure when you install you disable automatic upgrading and checks.
+```text
+.build/DerivedData/Build/Products/Release/SpacesRenamer.app
+.build/DerivedData/Build/Products/Release/spaces-renamer.bundle
+```
 
-**I can't see the icon in the menu bar**  
-Make sure the SpacesRenamer app is actually running (you can check it in Activity Monitor). If it is, it's likely that you just have a lot of icons. See [this comment](https://github.com/dado3212/spaces-renamer/issues/94#issuecomment-2126843231) for some recommendations on how to rearrange your icons to have it be visible.
+`make universal` verifies the architectures with `lipo`.
 
---- 
+## Injection
 
-Donations [are always appreciated](https://www.paypal.com/paypalme2/AlexBeals), but in no way expected.
+The repository’s `injection/` folder contains the current `dylinject` workflow:
+
+```bash
+./injection/run.sh
+```
+
+The supplied injector is currently `arm64e`-only. The Xcode Dock-bundle target also emits an `x86_64` slice, but Intel injection needs a compatible Intel injector.
+
+The injector workflow requires reduced macOS security protections. Review the script and understand the SIP/AMFI implications before running it. Building the app does not run the injector or restart Dock.
+
+## Usage
+
+- Left-click the tray icon to open the renamer.
+- Right-click the tray icon to switch profiles, choose a naming mode, or open Settings.
+- Press Control–Option–R from any app to toggle the renamer. Change it under Settings → Hotkey.
+- Edit names in the popover. Return commits the current field; closing the popover saves edited manual names.
+
+## Data
+
+Modern settings:
+
+```text
+~/Library/Application Support/SpacesRenamer/preferences.json
+```
+
+Dock compatibility files:
+
+```text
+~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.plist
+~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.currentspaces.plist
+```
+
+Existing names are migrated into the Work profile on first launch.
+
+## Caveats
+
+Spaces Renamer relies on private macOS APIs and Dock injection. macOS updates may require changes to the injected bundle. Both dynamic naming modes require yabai. App-based naming includes standard, user-facing accessibility windows and intentionally omits background or placeholder records.
