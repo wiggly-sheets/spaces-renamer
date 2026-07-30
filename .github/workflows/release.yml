@@ -41,7 +41,7 @@ jobs:
       - name: Create Release Archive
         run: |
           cd .build/DerivedData/Build/Products/Release
-          ditto -c -k --keepparent \
+          ditto -c -k --sequesterRsrc \
             "SpacesRenamer.app" \
             "../../SpacesRenamer-${{ github.ref_name }}.app.zip"
           shasum -a 256 "SpacesRenamer-${{ github.ref_name }}.app.zip" > \
