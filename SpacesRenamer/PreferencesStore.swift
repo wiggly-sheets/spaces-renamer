@@ -58,6 +58,22 @@ enum NamingMode: String, Codable, CaseIterable, Identifiable {
   }
 }
 
+enum MenuBarDisplayMode: String, Codable, CaseIterable, Identifiable {
+  case icon
+  case spaceName
+  case spaceNumberAndName
+
+  var id: Self { self }
+
+  var title: String {
+    switch self {
+    case .icon: return "Icon"
+    case .spaceName: return "Current Space name"
+    case .spaceNumberAndName: return "Space number and name"
+    }
+  }
+}
+
 private struct StoredPreferences: Codable {
   var profiles: [SpaceProfile]
   var activeProfileID: UUID
@@ -65,6 +81,7 @@ private struct StoredPreferences: Codable {
   var namingMode: NamingMode?
   var hotkey: HotkeyPreference
   var showMenuBarIcon: Bool?
+  var menuBarDisplayMode: MenuBarDisplayMode?
   var showDuplicateApplications: Bool?
 }
 
@@ -74,6 +91,7 @@ final class PreferencesStore: ObservableObject {
   @Published private(set) var namingMode: NamingMode
   @Published private(set) var hotkey: HotkeyPreference
   @Published private(set) var showMenuBarIcon: Bool
+  @Published private(set) var menuBarDisplayMode: MenuBarDisplayMode
   @Published private(set) var showDuplicateApplications: Bool
   @Published private(set) var loginItemEnabled: Bool = false
   @Published var lastError: String?
@@ -98,6 +116,7 @@ final class PreferencesStore: ObservableObject {
         ?? ((stored.automaticNaming ?? false) ? .applications : .manual)
       hotkey = stored.hotkey
       showMenuBarIcon = stored.showMenuBarIcon ?? true
+      menuBarDisplayMode = stored.menuBarDisplayMode ?? .icon
       showDuplicateApplications = stored.showDuplicateApplications ?? false
     } else {
       let migratedNames = Self.loadLegacyNames()
@@ -108,6 +127,7 @@ final class PreferencesStore: ObservableObject {
       namingMode = .manual
       hotkey = HotkeyPreference()
       showMenuBarIcon = true
+      menuBarDisplayMode = .icon
       showDuplicateApplications = false
     }
     refreshLoginItemStatus()
@@ -175,6 +195,11 @@ final class PreferencesStore: ObservableObject {
 
   func setShowMenuBarIcon(_ visible: Bool) {
     showMenuBarIcon = visible
+    persistAndNotify()
+  }
+
+  func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode) {
+    menuBarDisplayMode = mode
     persistAndNotify()
   }
 
@@ -256,6 +281,7 @@ final class PreferencesStore: ObservableObject {
       namingMode: namingMode,
       hotkey: hotkey,
       showMenuBarIcon: showMenuBarIcon,
+      menuBarDisplayMode: menuBarDisplayMode,
       showDuplicateApplications: showDuplicateApplications
     )
     if let data = try? JSONEncoder().encode(stored) {

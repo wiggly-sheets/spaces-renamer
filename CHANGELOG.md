@@ -10,6 +10,7 @@
 - A General setting to hide the menu bar icon, with Settings reopened when the running app is launched again.
 - A third naming mode that mirrors live yabai Space labels alongside manual profiles and app-based names.
 - An opt-in Apps-mode setting that lists each real window separately, including repeated application names.
+- A menu bar display setting for the app icon, current Space name, or Space number and name.
 
 ### Changed
 

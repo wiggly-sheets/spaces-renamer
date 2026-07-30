@@ -10,6 +10,7 @@ Spaces Renamer gives macOS Spaces persistent, useful names in Mission Control. T
 - Configurable global hotkey (default: Control–Option–R)
 - Three naming modes: manual profiles, apps occupying each Space, or live yabai Space labels
 - Optional per-window app names, allowing repeated names such as `Safari · Safari`
+- Menu bar display choices: app icon, current Space name, or number and name
 - Native macOS launch-at-login support
 - Native prompt to move the app into `/Applications`
 - Universal app binary (`arm64` + `x86_64`)
@@ -49,8 +50,9 @@ The injector workflow requires reduced macOS security protections. Review the sc
 
 ## Usage
 
-- Left-click the tray icon to open the renamer.
-- Right-click the tray icon to switch profiles, choose a naming mode, or open Settings.
+- Left-click the menu bar item to open the renamer.
+- Right-click the menu bar item to switch profiles, choose a naming mode, or open Settings.
+- Choose the icon, Space name, or number-and-name display under Settings → General.
 - Press Control–Option–R from any app to toggle the renamer. Change it under Settings → Hotkey.
 - Edit names in the popover. Return commits the current field; closing the popover saves edited manual names.
 

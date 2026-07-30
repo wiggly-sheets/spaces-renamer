@@ -57,13 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func configureStatusItem() {
     statusItem.isVisible = preferences.showMenuBarIcon
     guard let button = statusItem.button else { return }
-    button.image = Self.makeStatusItemImage()
-    button.imagePosition = .imageOnly
-    button.title = ""
-    button.toolTip = "Spaces Renamer"
     button.target = self
     button.action = #selector(statusItemPressed(_:))
     button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    updateStatusItemContent()
   }
 
   private static func makeStatusItemImage() -> NSImage? {
@@ -154,6 +151,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       showDuplicateApplications: preferences.showDuplicateApplications
     )
     preferences.applyGeneratedNames(from: spaces.snapshot)
+    updateStatusItemContent()
+  }
+
+  private func updateStatusItemContent() {
+    guard let button = statusItem.button else { return }
+
+    switch preferences.menuBarDisplayMode {
+    case .icon:
+      statusItem.length = NSStatusItem.squareLength
+      button.image = Self.makeStatusItemImage()
+      button.imagePosition = .imageOnly
+      button.title = ""
+      button.toolTip = "Spaces Renamer"
+    case .spaceName, .spaceNumberAndName:
+      let space = currentSpaceForStatusItem()
+      let name = space.map { preferences.name(for: $0.id) } ?? ""
+      let title: String
+      if let space {
+        switch preferences.menuBarDisplayMode {
+        case .icon:
+          title = ""
+        case .spaceName:
+          title = name.isEmpty ? "Space \(space.index)" : name
+        case .spaceNumberAndName:
+          title = name.isEmpty ? "\(space.index)" : "\(space.index). \(name)"
+        }
+      } else {
+        title = "Spaces"
+      }
+
+      statusItem.length = NSStatusItem.variableLength
+      button.image = nil
+      button.imagePosition = .noImage
+      button.title = title
+      button.toolTip = "Spaces Renamer — \(title)"
+    }
+  }
+
+  private func currentSpaceForStatusItem() -> ManagedSpace? {
+    if
+      let screen = statusItem.button?.window?.screen ?? NSScreen.main,
+      let screenNumber = screen.deviceDescription[
+        NSDeviceDescriptionKey("NSScreenNumber")
+      ] as? NSNumber,
+      let displayUUID = CGDisplayCreateUUIDFromDisplayID(
+        CGDirectDisplayID(screenNumber.uint32Value)
+      )?.takeRetainedValue(),
+      let identifier = CFUUIDCreateString(nil, displayUUID) as String?
+    {
+      if let matchingDisplay = spaces.snapshot.first(where: {
+        $0.id.caseInsensitiveCompare(identifier) == .orderedSame
+      }) {
+        return matchingDisplay.spaces.first(where: { $0.isCurrent })
+      }
+    }
+
+    return spaces.snapshot.lazy.flatMap(\.spaces).first(where: { $0.isCurrent })
   }
 
   @objc private func workspaceApplicationsChanged(_ notification: Notification) {

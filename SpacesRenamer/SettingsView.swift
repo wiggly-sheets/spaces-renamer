@@ -49,12 +49,27 @@ private struct GeneralSettingsView: View {
 
   var body: some View {
     SettingsPage(title: "General", subtitle: "Menu bar, startup, and installation") {
-      Toggle("Show menu bar icon", isOn: Binding(
+      Toggle("Show menu bar item", isOn: Binding(
         get: { preferences.showMenuBarIcon },
         set: { preferences.setShowMenuBarIcon($0) }
       ))
 
       Text("If hidden, reopen Spaces Renamer from Applications to show Settings.")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+
+      Picker("Menu bar display", selection: Binding(
+        get: { preferences.menuBarDisplayMode },
+        set: { preferences.setMenuBarDisplayMode($0) }
+      )) {
+        ForEach(MenuBarDisplayMode.allCases) { mode in
+          Text(mode.title).tag(mode)
+        }
+      }
+      .pickerStyle(.radioGroup)
+      .disabled(!preferences.showMenuBarIcon)
+
+      Text("Show the Spaces Renamer symbol, the current name such as “Code,” or its number and name such as “1. Code.”")
         .font(.callout)
         .foregroundStyle(.secondary)
 
