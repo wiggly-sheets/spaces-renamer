@@ -32,8 +32,8 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
-      - name: Install GitHub CLI
-        run: brew install gh
+      - name: Authenticate with GitHub CLI
+        run: echo $GH_TOKEN | /opt/homebrew/bin/gh auth login -h github.com -s --with-token
 
       - name: Build (universal)
         run: make universal
@@ -46,7 +46,7 @@ jobs:
       - name: Create Release Archive
         run: |
           cd .build/DerivedData/Build/Products/Release
-          ditto -c -k --sequesterRsrc \
+          ditto -c -k --keepparent \
             "SpacesRenamer.app" \
             "../../SpacesRenamer-${{ github.ref_name }}.app.zip"
           shasum -a 256 "SpacesRenamer-${{ github.ref_name }}.app.zip" > \
@@ -54,11 +54,11 @@ jobs:
 
       - name: Create GitHub Release
         run: |
-          gh release create "${{ github.ref_name }}" \
+          /opt/homebrew/bin/gh release create "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
             --title "${GITHUB_REPOSITORY#*/} ${{ github.ref_name }}" \
-            --notes "Release ${{ github.ref_name }}" \
+            --notes "v0.9.2 with fixed release workflow and local-path removal" \
             --prerelease
-          gh release upload "${{ github.ref_name }}" \
+          /opt/homebrew/bin/gh release upload "${{ github.ref_name }}" \
             SpacesRenamer-${{ github.ref_name }}.app.zip \
             SpacesRenamer-${{ github.ref_name }}.app.zip.sha256
