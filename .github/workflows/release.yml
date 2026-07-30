@@ -33,22 +33,30 @@ jobs:
       - name: Build (universal)
         run: make universal
 
-      - name: Package artifacts
+      - name: Verify app architecture
         run: |
-          DERIVED=".build/DerivedData/Build/Products/Release"
-          ARCHIVE="SpacesRenamer-${{ github.ref_name }}.zip"
-          ditto -c -k --keepParent \
-            "$DERIVED/SpacesRenamer.app" \
-            "$ARCHIVE"
-          # Generate checksum for Homebrew formula
-          shasum -a 256 "$ARCHIVE" | tee "$ARCHIVE.sha256"
+          lipo -info .build/DerivedData/Build/Products/Release/SpacesRenamer.app/Contents/MacOS/SpacesRenamer
+          lipo -info .build/DerivedData/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ github.ref_name }}
-          body_path: CHANGELOG.md
-          draft: true
-          files: |
-            SpacesRenamer-${{ github.ref_name }}.zip
-            SpacesRenamer-${{ github.ref_name }}.zip.sha256
+      - name: Create Release Archive
+        run: |
+          cd .build/DerivedData/Build/Products/Release
+          ditto -c -k --keepparent \
+            "SpacesRenamer.app" \
+            "../../SpacesRenamer-${{ github.ref_name }}.app.zip"
+          shasum -a 256 "SpacesRenamer-${{ github.ref_name }}.app.zip" > \
+            "../../SpacesRenamer-${{ github.ref_name }}.app.zip.sha256"
+
+      - name: Authenticate with GitHub CLI
+        run: echo $GH_TOKEN | /opt/homebrew/bin/gh auth login -h github.com -s --with-token
+
+      - name: Create GitHub Release
+        run: |
+          /opt/homebrew/bin/gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "${GITHUB_REPOSITORY#*/} ${{ github.ref_name }}" \
+            --notes "v0.9.2 with fixed release workflow and local-path removal" \
+            --prerelease
+          /opt/homebrew/bin/gh release upload "${{ github.ref_name }}" \
+            SpacesRenamer-${{ github.ref_name }}.app.zip \
+            SpacesRenamer-${{ github.ref_name }}.app.zip.sha256
