@@ -14,6 +14,10 @@
 # wiggly-sheets/homebrew-spacesrenamer tap repo using the existing GH_TOKEN
 # secret. Prerelease tags never touch the cask so stable installs stay intact.
 #
+# A non-gating tap test then proves the tap works end-to-end on the arm64
+# runner. Intel (x86_64) verification stays a documented manual pre-release
+# check; see docs/release.md.
+#
 # Prerequisites for a production-quality release:
 #   - Developer ID Application certificate for signing
 #   - Notarization via `xcrun notarytool`
@@ -126,4 +130,25 @@ jobs:
             git -C .tap-repo push origin "HEAD:${DEFAULT_BRANCH#origin/}"
           else
             echo "Tap cask already current for v${VERSION}; nothing to commit."
+          fi
+
+  tap-test:
+    name: Homebrew tap test (arm64)
+    needs: build
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: macos-15
+    # Non-gating: a tap failure must never roll back or block a release.
+    continue-on-error: true
+
+    steps:
+      - name: Tap, install, and verify version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          brew tap wiggly-sheets/spacesrenamer
+          brew install --cask spacesrenamer
+          INSTALLED="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/SpacesRenamer.app/Contents/Info.plist)"
+          echo "Installed SpacesRenamer ${INSTALLED} (expected ${VERSION})"
+          if [[ "$INSTALLED" != "$VERSION" ]]; then
+            echo "::error::Installed version ${INSTALLED} does not match tag version ${VERSION}"
+            exit 1
           fi

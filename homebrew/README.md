@@ -24,8 +24,10 @@ brew install --cask spacesrenamer
 
 ## Updating for a new release
 
-1. Download the release zip from GitHub
-2. Get the SHA256: `shasum -a 256 SpacesRenamer-v1.0.0.zip`
-3. Update `version` and `sha256` in `spacesrenamer.rb`
+Stable releases are automatic: tagging `vX.Y.Z` updates `version` and
+`sha256` in `spacesrenamer.rb`, commits the change to the release repo's
+master, and pushes the same file into this tap's `Formula/` directory. No
+manual steps are required.
 
-The release workflow produces the checksum automatically.
+See `docs/release.md` for the full release process, including the manual
+Intel pre-release check.
