@@ -77,6 +77,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           ARCHIVE=".build/DerivedData/SpacesRenamer-v${VERSION}.zip"
           NOTES_FILE="$(mktemp)"
+          trap 'rm -f "$NOTES_FILE"' EXIT
           scripts/release-notes.sh "$VERSION" > "$NOTES_FILE"
           PRERELEASE=""
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
@@ -89,7 +90,6 @@ jobs:
             $PRERELEASE
           gh release upload "$GITHUB_REF_NAME" \
             "$ARCHIVE" "${ARCHIVE}.sha256"
-          rm -f "$NOTES_FILE"
 
       - name: Bump cask and commit to master
         if: ${{ !contains(github.ref_name, '-') }}

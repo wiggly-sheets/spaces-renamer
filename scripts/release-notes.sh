@@ -22,10 +22,16 @@ if [[ ! -f "$CHANGELOG" ]]; then
   exit 0
 fi
 
+# The version becomes part of an awk regex, so escape metacharacters that can
+# appear in semver tags (`.` and `+`). Without this, `1.0.0` would also match
+# headers like `## 1X0Y0`.
+VERSION_RE="${VERSION//./\\.}"
+VERSION_RE="${VERSION_RE//+/\\+}"
+
 section="$(
-  awk -v version="$VERSION" '
+  awk -v version="$VERSION" -v version_re="$VERSION_RE" '
     BEGIN { found = 0; started = 0 }
-    $0 ~ "^## v?" version "([ ]|$)" { found = 1; next }
+    $0 ~ "^## v?" version_re "([ ]|$)" { found = 1; next }
     found && /^## / { exit }
     found && !started && /^[[:space:]]*$/ { next }
     found { started = 1; print }

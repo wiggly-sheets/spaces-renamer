@@ -119,6 +119,26 @@ else
   echo "ok - missing args exit non-zero"
 fi
 
+# 8. Version dots are literal: 1.0 must not match 1.00 or 1X0.
+cat > "$TMP/CHANGELOG-regex.md" <<'EOF'
+# Changelog
+
+## 1.00 (2026-08-06)
+
+### Added
+
+- Dotty.
+
+## 1.0 (2026-08-07)
+
+### Added
+
+- The real one.
+EOF
+out="$("$SCRIPT" 1.0 "$TMP/CHANGELOG-regex.md")"
+assert_eq "version dots treated literally" \
+  $'### Added\n\n- The real one.' "$out"
+
 echo
 echo "${pass} passed, ${fail} failed"
 [[ "$fail" -eq 0 ]]
