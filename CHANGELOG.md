@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- [Ticket 10] Embed injection stack in app bundle: app bundle now carries full injection stack at build time (injection script, injector executable, payload) at a stable, code-signed-safe location
+- [Ticket 11] GUI-driven injection with admin-prompt elevation: Settings → Injection section shows health state + Inject button; clicking Inject runs the embedded stack via system password/Touch ID prompt; health reflects Dock handshake, not just injector exit
+- [Ticket 12] Persistent consent flow: first launch (or any launch while injection is off) asks for consent; grant persists and auto-injects silently on later launches; declining leaves injection off and never prompts every launch
+- [Ticket 13] Automatic reinjection: with consent granted, the app keeps itself injected — reinjects on Dock restart and at computer restart via existing launch-at-login; controlled by Settings toggle
+- [Ticket 14] Recovery affordances: two-click recovery when app running but injection inactive (e.g., Dock crashed/restarted while automation was off) — re-inject entry in menu bar plus Settings button; inactive state surfaced in menu bar + Settings
+
 ## 0.9.0 (2026-07-30)
 
 ### Added
