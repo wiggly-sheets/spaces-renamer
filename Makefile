@@ -3,7 +3,7 @@ DERIVED_DATA := .build/DerivedData
 XCODEBUILD := xcodebuild -project $(PROJECT) -configuration Release -derivedDataPath $(DERIVED_DATA) CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=NO
 APP := $(DERIVED_DATA)/Build/Products/Release/SpacesRenamer.app
 
-.PHONY: app plugin package-injection universal verify clean
+.PHONY: app plugin package-injection universal verify clean test
 
 app:
 	$(XCODEBUILD) -scheme SpacesRenamer 'ARCHS=arm64 x86_64' build
@@ -24,6 +24,10 @@ verify:
 	lipo -info "$(APP)/Contents/MacOS/SpacesRenamer"
 	lipo -info "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer"
 	lipo -info injection/lib/spaces-renamer.dylib
+
+test:
+	./scripts/tests/test_release_notes.sh
+	./scripts/tests/test_bump_cask.sh
 
 clean:
 	xcodebuild -project $(PROJECT) -scheme SpacesRenamer clean
