@@ -1,353 +1,286 @@
 import AppKit
 import Foundation
+import os
 
 enum InjectionState: Equatable {
-  case unsupported(String)
-  case helperNotInstalled
-  case connecting
-  case helperReady
-  case injecting
-  case injected(pid: Int32)
-  case error(String)
+    case unsupported(String)
+    case bootArgsWarning(String)
+    case ready
+    case injecting
+    case injected(pid: Int32)
+    case error(String)
 
-  var title: String {
-    switch self {
-    case .unsupported: return "Unavailable"
-    case .helperNotInstalled: return "Helper not installed"
-    case .connecting: return "Checking helper"
-    case .helperReady: return "Ready to inject"
-    case .injecting: return "Injecting"
-    case .injected: return "Injected"
-    case .error: return "Needs attention"
+    var title: String {
+        switch self {
+        case .unsupported: return "Unavailable"
+        case .bootArgsWarning: return "Boot arguments required"
+        case .ready: return "Ready to inject"
+        case .injecting: return "Injecting"
+        case .injected: return "Injected"
+        case .error: return "Needs attention"
+        }
     }
-  }
 
-  var detail: String {
-    switch self {
-    case .unsupported(let reason), .error(let reason):
-      return reason
-    case .helperNotInstalled:
-      return "Install the fixed-purpose helper once with an administrator password."
-    case .connecting:
-      return "Connecting to the privileged helper…"
-    case .helperReady:
-      return "The helper is installed; Dock is not currently reporting the payload."
-    case .injecting:
-      return "Loading the bundled payload into Dock…"
-    case .injected(let pid):
-      return "The current Dock process (PID \(pid)) has loaded Spaces Renamer."
+    var detail: String {
+        switch self {
+        case .unsupported(let reason): return reason
+        case .bootArgsWarning(let reason): return reason
+        case .ready: return "The required boot arguments are present; ready to inject."
+        case .injecting: return "Loading the bundled payload into Dock…"
+        case .injected(let pid): return "The current Dock process (PID \(pid)) has loaded Spaces Renamer."
+        case .error(let reason): return reason
+        }
     }
-  }
 
-  var symbol: String {
-    switch self {
-    case .injected: return "checkmark.circle.fill"
-    case .connecting, .injecting: return "clock.arrow.circlepath"
-    case .helperReady: return "checkmark.shield"
-    case .helperNotInstalled: return "lock.shield"
-    case .unsupported, .error: return "exclamationmark.triangle.fill"
+    var symbol: String {
+        switch self {
+        case .injected: return "checkmark.circle.fill"
+        case .injecting: return "clock.arrow.circlepath"
+        case .ready: return "checkmark.shield"
+        case .bootArgsWarning: return "exclamationmark.triangle.fill"
+        case .unsupported, .error: return "exclamationmark.triangle.fill"
+        }
     }
-  }
 }
 
 @MainActor
 final class InjectionManager: ObservableObject {
-  @Published private(set) var state: InjectionState = .connecting
-  @Published private(set) var operationInProgress = false
-  @Published private(set) var bootArgumentsWarning: String?
+    @Published private(set) var state: InjectionState = .ready
+    @Published private(set) var operationInProgress = false
+    @Published private(set) var bootArgumentsWarning: String?
 
-  private weak var preferences: PreferencesStore?
-  private var connection: NSXPCConnection?
-  private var observers: [NSObjectProtocol] = []
-  private var reinjectionWorkItem: DispatchWorkItem?
+    private weak var preferences: PreferencesStore?
+    private var observers: [NSObjectProtocol] = []
+    private var reinjectionWorkItem: DispatchWorkItem?
 
-  private static let helperDirectory =
-    "/Library/PrivilegedHelperTools/com.wiggly-sheets.SpacesRenamer.Injection"
-  private static let handshakeURL = URL(
-    fileURLWithPath: "/tmp/spaces-renamer-injection-\(getuid()).json"
-  )
-
-  func start(preferences: PreferencesStore) {
-    self.preferences = preferences
-    checkPlatform()
-    guard case .unsupported = state else {
-      observeDockAndPayload()
-      refresh(injectIfEnabled: true)
-      return
-    }
-  }
-
-  func stop() {
-    reinjectionWorkItem?.cancel()
-    observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
-    observers.removeAll()
-    DistributedNotificationCenter.default().removeObserver(self)
-    invalidateConnection()
-  }
-
-  func refresh(injectIfEnabled: Bool = false) {
-    guard isAppleSilicon else {
-      state = .unsupported("Dock injection is supported only on Apple silicon.")
-      return
-    }
-    updateBootArgumentsWarning()
-
-    if let pid = injectedDockPID() {
-      state = .injected(pid: pid)
-      return
-    }
-    guard helperIsInstalled else {
-      state = .helperNotInstalled
-      return
-    }
-
-    state = .connecting
-    ping { [weak self] ready, message in
-      guard let self else { return }
-      if ready {
-        self.state = .helperReady
-        if injectIfEnabled, self.preferences?.automaticInjectionEnabled == true {
-          self.injectNow()
-        }
-      } else {
-        self.state = .error(message)
-      }
-    }
-  }
-
-  func installHelper() {
-    runManagementAction("install") { [weak self] succeeded, message in
-      guard let self else { return }
-      if succeeded {
-        self.refresh(injectIfEnabled: self.preferences?.automaticInjectionEnabled == true)
-      } else {
-        self.state = .error(message)
-      }
-    }
-  }
-
-  func uninstallHelper() {
-    runManagementAction("uninstall") { [weak self] succeeded, message in
-      guard let self else { return }
-      self.invalidateConnection()
-      self.state = succeeded ? .helperNotInstalled : .error(message)
-    }
-  }
-
-  func injectNow() {
-    guard helperIsInstalled else {
-      state = .helperNotInstalled
-      return
-    }
-    operationInProgress = true
-    state = .injecting
-    let proxy = xpcProxy { [weak self] error in
-      Task { @MainActor in
-        self?.operationInProgress = false
-        self?.state = .error(error.localizedDescription)
-      }
-    }
-    proxy?.inject { [weak self] succeeded, message, dockPID in
-      Task { @MainActor in
-        guard let self else { return }
-        self.operationInProgress = false
-        if succeeded {
-          self.scheduleHandshakeCheck(expectedPID: dockPID?.int32Value)
-        } else {
-          self.state = .error(message)
-        }
-      }
-    }
-  }
-
-  private var helperIsInstalled: Bool {
-    FileManager.default.isExecutableFile(
-      atPath: "\(Self.helperDirectory)/SpacesRenamerInjectionHelper"
+    private static let handshakeURL = URL(
+        fileURLWithPath: "/tmp/spaces-renamer-injection-\(getuid()).json"
     )
-  }
+    private static let injectionScriptName = "run.sh"
+    private static let logger = Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "InjectionManager")
+    private static let injectionProtocolVersion = "1"
 
-  private var isAppleSilicon: Bool {
-    var supported: Int32 = 0
-    var size = MemoryLayout<Int32>.size
-    return sysctlbyname("hw.optional.arm64", &supported, &size, nil, 0) == 0
-      && supported == 1
-  }
-
-  private func checkPlatform() {
-    if !isAppleSilicon {
-      state = .unsupported("Dock injection is supported only on Apple silicon.")
-    }
-  }
-
-  private func updateBootArgumentsWarning() {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/sbin/nvram")
-    process.arguments = ["boot-args"]
-    let output = Pipe()
-    process.standardOutput = output
-    process.standardError = Pipe()
-    do {
-      try process.run()
-      process.waitUntilExit()
-      let data = output.fileHandleForReading.readDataToEndOfFile()
-      let arguments = String(decoding: data, as: UTF8.self)
-      bootArgumentsWarning =
-        arguments.contains("-arm64e_preview_abi") ||
-        arguments.contains("amfi_get_out_of_my_way=1")
-          ? nil
-          : "Required reduced-security boot arguments were not detected."
-    } catch {
-      bootArgumentsWarning = "Could not verify the required boot arguments."
-    }
-  }
-
-  private func ping(completion: @escaping (Bool, String) -> Void) {
-    let proxy = xpcProxy { error in
-      Task { @MainActor in completion(false, error.localizedDescription) }
-    }
-    proxy?.ping { protocolVersion, _ in
-      Task { @MainActor in
-        guard protocolVersion == SpacesRenamerInjectionProtocolVersion else {
-          completion(false, "The installed helper uses an incompatible protocol.")
-          return
+    // MARK: - Lifecycle
+    func start(preferences: PreferencesStore) {
+        self.preferences = preferences
+        checkPlatform()
+        guard case .unsupported = state else {
+            observeDockAndPayload()
+            refresh(injectIfEnabled: true)
+            return
         }
-        completion(true, "")
-      }
-    }
-  }
-
-  private func xpcProxy(
-    errorHandler: @escaping (Error) -> Void
-  ) -> SpacesRenamerInjectionXPC? {
-    if connection == nil {
-      let newConnection = NSXPCConnection(
-        machServiceName: SpacesRenamerInjectionMachService,
-        options: .privileged
-      )
-      newConnection.remoteObjectInterface =
-        NSXPCInterface(with: SpacesRenamerInjectionXPC.self)
-      newConnection.invalidationHandler = { [weak self] in
-        Task { @MainActor in self?.connection = nil }
-      }
-      newConnection.interruptionHandler = { [weak self] in
-        Task { @MainActor in self?.connection = nil }
-      }
-      newConnection.activate()
-      connection = newConnection
-    }
-    return connection?.remoteObjectProxyWithErrorHandler(errorHandler)
-      as? SpacesRenamerInjectionXPC
-  }
-
-  private func invalidateConnection() {
-    connection?.invalidate()
-    connection = nil
-  }
-
-  private func runManagementAction(
-    _ action: String,
-    completion: @escaping (Bool, String) -> Void
-  ) {
-    guard
-      let resources = Bundle.main.resourceURL?.appendingPathComponent("Injection"),
-      FileManager.default.fileExists(
-        atPath: resources.appendingPathComponent("manage-helper.sh").path
-      )
-    else {
-      state = .error("This app build does not contain the injection helper resources.")
-      return
     }
 
-    operationInProgress = true
-    let script = resources.appendingPathComponent("manage-helper.sh").path
-    let command = "/bin/bash \(shellQuoted(script)) \(action)"
-    let source = "do shell script \(appleScriptQuoted(command)) with administrator privileges"
-    DispatchQueue.global(qos: .userInitiated).async {
-      let appleScript = NSAppleScript(source: source)
-      var errorInfo: NSDictionary?
-      appleScript?.executeAndReturnError(&errorInfo)
-      let message = (errorInfo?[NSAppleScript.errorMessage] as? String) ?? ""
-      Task { @MainActor in
-        self.operationInProgress = false
-        completion(errorInfo == nil, message.isEmpty ? "Administrator authorization was cancelled." : message)
-      }
+    func stop() {
+        reinjectionWorkItem?.cancel()
+        observers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        observers.removeAll()
+        DistributedNotificationCenter.default().removeObserver(self)
     }
-  }
 
-  private func shellQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-  }
-
-  private func appleScriptQuoted(_ value: String) -> String {
-    "\"" + value
-      .replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "\"", with: "\\\"") + "\""
-  }
-
-  private func observeDockAndPayload() {
-    observers.append(NSWorkspace.shared.notificationCenter.addObserver(
-      forName: NSWorkspace.didLaunchApplicationNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] notification in
-      guard
-        let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-          as? NSRunningApplication,
-        application.bundleIdentifier == "com.apple.dock"
-      else { return }
-      Task { @MainActor in self?.dockDidRestart() }
-    })
-    DistributedNotificationCenter.default().addObserver(
-      self,
-      selector: #selector(payloadDidLoad(_:)),
-      name: Notification.Name("com.wiggly-sheets.SpacesRenamer.Injected"),
-      object: nil
-    )
-  }
-
-  private func dockDidRestart() {
-    reinjectionWorkItem?.cancel()
-    guard preferences?.automaticInjectionEnabled == true else {
-      refresh()
-      return
+    // MARK: - Public API
+    func refresh(injectIfEnabled: Bool = false) {
+        guard isAppleSilicon else {
+            state = .unsupported("Dock injection is supported only on Apple silicon.")
+            return
+        }
+        updateBootArgumentsWarning()
+        if let pid = injectedDockPID() {
+            state = .injected(pid: pid)
+            return
+        }
+        // Not injected
+        if case .bootArgsWarning = state {
+            // already shows warning, do not auto-inject
+            return
+        }
+        state = .ready
+        if injectIfEnabled, preferences?.automaticInjectionEnabled == true {
+            injectNow()
+        }
     }
-    let work = DispatchWorkItem { [weak self] in
-      Task { @MainActor in self?.refresh(injectIfEnabled: true) }
+
+    func injectNow() {
+        guard isAppleSilicon else {
+            state = .unsupported("Dock injection is supported only on Apple silicon.")
+            return
+        }
+        guard case .bootArgsWarning = state else {
+            // boot arguments must be OK
+            guard let warning = bootArgumentsWarning, !warning.isEmpty else {
+                // no warning, proceed
+                injectionAttempt()
+                return
+            }
+            state = .bootArgsWarning(warning)
+            return
+        }
     }
-    reinjectionWorkItem = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-  }
 
-  @objc private func payloadDidLoad(_ notification: Notification) {
-    refresh()
-  }
-
-  private func scheduleHandshakeCheck(expectedPID: Int32?) {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-      guard let self else { return }
-      if let pid = self.injectedDockPID(), expectedPID == nil || expectedPID == pid {
-        self.state = .injected(pid: pid)
-      } else {
-        self.state = .error("The injector finished, but Dock did not report the payload.")
-      }
+    private func injectionAttempt() {
+        operationInProgress = true
+        state = .injecting
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let success = self.performInjectionViaAdminScript()
+            let message = success ? "" : "Injection failed; see console for details."
+            Task { @MainActor in
+                self.operationInProgress = false
+                if success {
+                    self.scheduleHandshakeCheck(expectedPID: nil)
+                } else {
+                    self.state = .error(message)
+                }
+            }
+        }
     }
-  }
 
-  private func injectedDockPID() -> Int32? {
-    guard
-      let data = try? Data(contentsOf: Self.handshakeURL),
-      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let protocolVersion = object["protocolVersion"] as? String,
-      protocolVersion == SpacesRenamerInjectionProtocolVersion,
-      let number = object["dockPID"] as? NSNumber
-    else { return nil }
-    let pid = number.int32Value
-    return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.dock"
-      ? pid
-      : nil
-  }
+    // MARK: - Private helpers
+    private var isAppleSilicon: Bool {
+        var supported: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        return sysctlbyname("hw.optional.arm64", &supported, &size, nil, 0) == 0 && supported == 1
+    }
 
-  deinit {
-    connection?.invalidate()
-  }
+    private func checkPlatform() {
+        if !isAppleSilicon {
+            state = .unsupported("Dock injection is supported only on Apple silicon.")
+        }
+    }
+
+    private func updateBootArgumentsWarning() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/nvram")
+        process.arguments = ["boot-args"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            let arguments = String(decoding: data, as: UTF8.self)
+            let required = arguments.contains("-arm64e_preview_abi") ||
+                           arguments.contains("amfi_get_out_of_my_way=1")
+            bootArgumentsWarning = required ? nil : "Required reduced-security boot arguments were not detected."
+            // Update state based on warning
+            if let warning = bootArgumentsWarning, !warning.isEmpty {
+                if case .bootArgsWarning = state {
+                    // keep
+                } else {
+                    state = .bootArgsWarning(warning)
+                }
+            } else {
+                // clear warning; if currently showing warning, move to ready
+                if case .bootArgsWarning = state {
+                    state = .ready
+                }
+            }
+        } catch {
+            bootArgumentsWarning = "Could not verify the required boot arguments."
+            if let warning = bootArgumentsWarning, !warning.isEmpty {
+                if case .bootArgsWarning = state {
+                    // keep
+                } else {
+                    state = .bootArgsWarning(warning)
+                }
+            }
+        }
+    }
+
+    private func performInjectionViaAdminScript() -> Bool {
+        guard let scriptURL = Bundle.main.resourceURL?
+                .appendingPathComponent("Injection")
+                .appendingPathComponent(Self.injectionScriptName) else {
+            Self.logger.error("Injection script not found in bundle.")
+            return false
+        }
+        let scriptPath = scriptURL.path
+        // Build command: /bin/bash <script_path>
+        let command = "/bin/bash \(shellQuoted(scriptPath))"
+        let appleScript = "do shell script \(appleScriptQuoted(command)) with administrator privileges"
+        let appleScriptObj = NSAppleScript(source: appleScript)
+        var errorInfo: NSDictionary?
+        let _ = appleScriptObj?.executeAndReturnError(&errorInfo)
+        if let error = errorInfo {
+            Self.logger.error("AppleScript error: \(error)")
+            return false
+        }
+        // If we got here without error, assume script succeeded (it exits 0 on success)
+        return true
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func appleScriptQuoted(_ value: String) -> String {
+        "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    // MARK: - Observation
+    private func observeDockAndPayload() {
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard
+                let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication,
+                application.bundleIdentifier == "com.apple.dock"
+            else { return }
+            Task { @MainActor in self?.dockDidRestart() }
+        })
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(payloadDidLoad(_:)),
+            name: Notification.Name("com.wiggly-sheets.SpacesRenamer.Injected"),
+            object: nil
+        )
+    }
+
+    @objc private func payloadDidLoad(_ notification: Notification) {
+        refresh()
+    }
+
+    private func dockDidRestart() {
+        reinjectionWorkItem?.cancel()
+        guard preferences?.automaticInjectionEnabled == true else {
+            refresh()
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.refresh(injectIfEnabled: true) }
+        }
+        reinjectionWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+    }
+
+    private func scheduleHandshakeCheck(expectedPID: Int32?) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self = self else { return }
+            if let pid = self.injectedDockPID(), expectedPID == nil || expectedPID == pid {
+                self.state = .injected(pid: pid)
+            } else {
+                self.state = .error("The injector finished, but Dock did not report the payload.")
+            }
+        }
+    }
+
+    private func injectedDockPID() -> Int32? {
+        guard
+            let data = try? Data(contentsOf: Self.handshakeURL),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let protocolVersion = object["protocolVersion"] as? String,
+            protocolVersion == Self.injectionProtocolVersion,
+            let number = object["dockPID"] as? NSNumber
+        else { return nil }
+        let pid = number.int32Value
+        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.dock"
+            ? pid
+            : nil
+    }
 }

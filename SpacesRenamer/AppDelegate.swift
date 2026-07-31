@@ -217,19 +217,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var pendingAutomaticRefresh: DispatchWorkItem?
   private var observers: [NSObjectProtocol] = []
 
-  // Injected bundle manager for v1.0.0 app-managed injection
-  private let injection = InjectionManager()
+// Injected bundle manager for v1.0.0 app-managed injection
+    private var injection: InjectionManager!
+    private lazy var configFile = ConfigFile(preferences: preferences)
 
-  // MARK: - Application Lifecycle
+   // MARK: - Application Lifecycle
 
-  func applicationDidFinishLaunching(_ notification: Notification) {
-    NSApp.setActivationPolicy(.accessory)
-    ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
+@MainActor
+func applicationDidFinishLaunching(_ notification: Notification) {
+      NSApp.setActivationPolicy(.accessory)
+      ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
 
-    installCLISymlink()
-    _ = configFile
-
-    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+installCLISymlink()
+_ = configFile
+        // Initialize injection manager on main thread
+        injection = InjectionManager()
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     statusItem.autosaveName = "SpacesRenamerStatusItem.v2"
     configureStatusItem()
     configurePopover()
@@ -240,8 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     DispatchQueue.main.async {
       NativeAppManagement.promptToMoveIfNeeded()
     }
-    // Start injection subsystem after preferences are ready
-    injection.start(preferences: preferences)
+// Start injection subsystem after preferences are ready
+     injection.start(preferences: preferences)
   }
 
   func application(_ application: NSApplication, open urls: [URL]) {
@@ -419,6 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   // MARK: - Actions
 
+  @MainActor
   @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
     guard let event = NSApp.currentEvent else { return }
 
@@ -442,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       // Injection section (v1.0.0)
       menu.addItem(.separator())
       menu.addItem(NSMenuItem(title: "Injection", action: nil, keyEquivalent: ""))
-      let stateItem = NSMenuItem(title: injection.state.menuTitle, action: nil, keyEquivalent: "")
+      let stateItem = NSMenuItem(title: injection.state.title, action: nil, keyEquivalent: "")
       stateItem.state = .off // no rich state; we rely on detail text
       menu.addItem(stateItem)
       let injectItem = NSMenuItem(title: "Inject Dock Hook", action: #selector(injectFromMenu(_:)), keyEquivalent: "")
@@ -481,11 +485,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     preferences.setNamingMode(mode)
   }
 
+  @MainActor
   @objc private func injectFromMenu(_ sender: NSMenuItem) {
     injection.injectNow()
   }
 
-  @objc private func toggleAutomaticInjection(_ sender: NSMenuItem) {
+  @MainActor
+@objc private func toggleAutomaticInjection(_ sender: NSMenuItem) {
     if let isAuto = sender.representedObject as? String, isAuto == "auto" {
       let now = !preferences.automaticInjectionEnabled
       if now {
@@ -596,7 +602,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
   }
 
-  private func preferencesChanged() {
+  @MainActor
+private func preferencesChanged() {
     statusItem.isVisible = preferences.showMenuBarIcon
     updateStatusItemContent()
     configureHotkey()
@@ -606,13 +613,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   // MARK: - Automatic Naming
 
-  private func configureAutomaticNameUpdates() {
+  @MainActor
+private func configureAutomaticNameUpdates() {
     yabaiEventMonitor = YabaiEventMonitor { [weak self] in
       self?.scheduleAutomaticRefresh()
     }
   }
 
-  private func scheduleAutomaticRefresh() {
+  @MainActor
+private func scheduleAutomaticRefresh() {
     guard preferences.namingMode != .manual else { return }
     pendingAutomaticRefresh?.cancel()
     let work = DispatchWorkItem { [weak self] in
@@ -623,14 +632,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
   }
 
-  private func refreshSpaces() {
+  @MainActor
+private func refreshSpaces() {
     spaces.refresh(for: preferences.namingMode, showDuplicateApplications: preferences.showDuplicateApplications)
     preferences.applyGeneratedNames(from: spaces.snapshot)
     updateStatusItemContent()
     injection.refresh(injectIfEnabled: preferences.automaticInjectionEnabled && preferences.injectionConsentGranted == true)
   }
 
-  private func configureHotkey() {
+  @MainActor
+private func configureHotkey() {
     let p = preferences.hotkey
     hotkeyMonitor = GlobalHotkeyMonitor(keyCode: p.keyCode, modifiers: p.carbonModifiers) { [weak self] in
       DispatchQueue.main.async { self?.togglePopover() }

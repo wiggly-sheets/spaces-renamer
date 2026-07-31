@@ -310,9 +310,13 @@ private struct HotkeySettingsView: View {
 }
 
 private final class HotkeyRecorder: NSViewRepresentable {
-  @Binding var value: HotkeyPreference
+    @Binding var value: HotkeyPreference
 
-  func makeCoordinator() -> Coordinator {
+    init(value: Binding<HotkeyPreference>) {
+        self._value = value
+    }
+
+    func makeCoordinator() -> Coordinator {
     Coordinator(self)
   }
 
