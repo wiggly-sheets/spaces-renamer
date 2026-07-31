@@ -4,7 +4,9 @@
 #
 # The workflow builds the universal app + bundle, packages them as a zip named
 # exactly as the Homebrew cask expects (SpacesRenamer-v<version>.zip), and
-# creates a GitHub Release with the archive and checksum attached.
+# creates a GitHub Release with the archive and checksum attached. Release
+# notes are extracted from the CHANGELOG section matching the tag, falling back
+# to a generic note when no section exists.
 #
 # Prerequisites for a production-quality release:
 #   - Developer ID Application certificate for signing
@@ -57,10 +59,13 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARCHIVE=".build/DerivedData/SpacesRenamer-v${VERSION}.zip"
+          NOTES_FILE="$(mktemp)"
+          scripts/release-notes.sh "$VERSION" > "$NOTES_FILE"
           gh release create "$GITHUB_REF_NAME" \
             --repo "${{ github.repository }}" \
             --title "${GITHUB_REPOSITORY#*/} ${GITHUB_REF_NAME}" \
-            --notes "Release ${GITHUB_REF_NAME}" \
+            --notes-file "$NOTES_FILE" \
             --prerelease
           gh release upload "$GITHUB_REF_NAME" \
             "$ARCHIVE" "${ARCHIVE}.sha256"
+          rm -f "$NOTES_FILE"
