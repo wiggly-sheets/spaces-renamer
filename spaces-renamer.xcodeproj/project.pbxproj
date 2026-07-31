@@ -16,6 +16,7 @@
 		A90000020000000000000001 /* SpaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000120000000000000001 /* SpaceStore.swift */; };
 		A90000030000000000000001 /* RenamerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000130000000000000001 /* RenamerView.swift */; };
 		A90000040000000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000140000000000000001 /* SettingsView.swift */; };
+		A90000050000000000000001 /* InjectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000150000000000000001 /* InjectionManager.swift */; };
 		536586AAA96144FAB17DC11E8BAADFEF /* TOMLDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */; };
 		09536C5EDB0E4489B0A1C5E52060FB9B /* ConfigFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99585131D13B455BB5FD04943F16128 /* ConfigFile.swift */; };
 /* End PBXBuildFile section */
@@ -37,6 +38,7 @@
 		A90000120000000000000001 /* SpaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceStore.swift; sourceTree = "<group>"; };
 		A90000130000000000000001 /* RenamerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenamerView.swift; sourceTree = "<group>"; };
 		A90000140000000000000001 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A90000150000000000000001 /* InjectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectionManager.swift; sourceTree = "<group>"; };
 		C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOMLDecoder.swift; sourceTree = "<group>"; };
 		99585131D13B455BB5FD04943F16128 /* ConfigFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigFile.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -105,6 +107,7 @@
 				A90000120000000000000001 /* SpaceStore.swift */,
 				A90000130000000000000001 /* RenamerView.swift */,
 				A90000140000000000000001 /* SettingsView.swift */,
+				A90000150000000000000001 /* InjectionManager.swift */,
 				C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */,
 				99585131D13B455BB5FD04943F16128 /* ConfigFile.swift */,
 				A81F4EFA206C012500660338 /* SpacesRenamerBridge.h */,
@@ -228,6 +231,7 @@
 				A90000020000000000000001 /* SpaceStore.swift in Sources */,
 				A90000030000000000000001 /* RenamerView.swift in Sources */,
 				A90000040000000000000001 /* SettingsView.swift in Sources */,
+				A90000050000000000000001 /* InjectionManager.swift in Sources */,
 				A80DDE3C1FBCEBDE00794F8F /* Utils.swift in Sources */,
 				536586AAA96144FAB17DC11E8BAADFEF /* TOMLDecoder.swift in Sources */,
 				09536C5EDB0E4489B0A1C5E52060FB9B /* ConfigFile.swift in Sources */,

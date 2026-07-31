@@ -238,25 +238,34 @@ to `~/dotfiles/mac/tweaks/spacesrenamer/run.sh`, not this repository.
 This external copy can become stale and must not be treated as part of the
 portable project. Avoid adding more dependencies on personal dotfiles.
 
-### Planned App-Managed Injection
+### App-Managed Injection (v1.0.0)
 
-App-managed injection has been designed but is not implemented.
+App-managed injection is designed for v1.0.0. The chosen design (see
+`docs/adr/0001-app-managed-injection-elevation.md` for the decision and its
+constraints):
 
-The preferred design is:
+- embed the injection stack (`injection/run.sh`, `dylinject`, and
+  `spaces-renamer.dylib`) inside `SpacesRenamer.app` at build time;
+- elevate via `osascript` `do shell script ... with administrator privileges`,
+  which shows the standard macOS password / Touch ID dialog — not the
+  deprecated `AuthorizationExecuteWithPrivileges`, no sudoers rule, no new
+  trust boundary;
+- ask consent at first launch (or whenever injection is off); the grant
+  persists and later launches auto-inject silently;
+- reinject automatically on Dock restart and computer restart (via the
+  existing launch-at-login); toggle in Settings;
+- keep manual re-inject affordances in Settings and the menu bar for recovery
+  when Dock crashes or injection is inactive while the app runs;
+- surface health state through the bundle-originated handshake (Dock PID and
+  payload version). Never assume a successful injector exit alone proves the
+  bundle is active.
 
-- embed the injector and payload inside `SpacesRenamer.app`;
-- add an Injection settings section and explicit health states;
-- use an `SMAppService` launch daemon with a narrowly scoped XPC interface;
-- request one system-level approval rather than invoking arbitrary shell
-  commands;
-- allow the helper to inject only the fixed, validated bundled payload;
-- have the injected bundle report its Dock PID and payload version;
-- observe Dock restarts and request reinjection when enabled;
-- remove the personal yabairc hook only after the app-managed path is proven.
-
-A stable signing identity is a prerequisite for a production-quality
-privileged-helper relationship. Do not silently fall back to a broad sudoers
-rule or deprecated `AuthorizationExecuteWithPrivileges`.
+No Developer ID Application certificate is currently available. That blocks
+the production privileged-helper path: the `SMAppService` launch daemon with a
+narrowly scoped XPC interface remains the designed post-signing upgrade and
+must wait for a stable signing identity. Do not silently fall back to a broad
+sudoers rule or deprecated `AuthorizationExecuteWithPrivileges`. Remove the
+personal yabairc hook only after the app-managed path is proven.
 
 ## Native App Management
 
@@ -295,10 +304,47 @@ Use a bundle-originated handshake when app-managed injection is implemented.
 - Use `apply_patch` for source edits.
 - Do not remove the Objective-C hook merely to claim a pure-Swift codebase.
 
+## v1.0.0 Roadmap
+
+In priority order:
+
+- [ ] Finalize GitHub Releases workflow and Homebrew tap test
+  - Fix the artifact-name mismatch (`SpacesRenamer-{tag}.app.zip` vs the
+    cask's `SpacesRenamer-v{version}.zip`).
+  - Auto-bump the cask in the release workflow: update
+    `homebrew/spacesrenamer.rb` (version + sha256), commit to master, and push
+    the same file to the separate tap repo `wiggly-sheets/homebrew-spacesrenamer`
+    using the existing `GH_TOKEN` secret.
+  - Post-release tap-test job (non-gating): `brew tap` + `brew install --cask`
+    + version assert on the arm64 CI runner; Intel stays a documented manual
+    pre-release check.
+  - Release notes extracted from `CHANGELOG.md`; generic fallback; never fail
+    the release over missing changelog text.
+  - `--prerelease` only for prerelease tags (tag contains `-`).
+- [ ] Create DMG with `create-dmg` (custom background/instructions) instead of zip for GitHub Release / Homebrew
+  - DMG-only: ship `SpacesRenamer-v{version}.dmg` + `.sha256`; cask URL points
+    at the `.dmg`; zip removed from Releases.
+  - Add `packaging/` with the create-dmg invocation and a placeholder
+    background (plain white/grey, "Drag into Applications" instructions baked
+    in); add a `make dmg` target.
+- [ ] Add app-managed injection for all-in-one workflow (started in separate branch)
+  - Implementation branch: `feat/app-managed-injection` (was
+    `codex/app-managed-injection`). Design in the App-Managed Injection section
+    above and `docs/adr/0001-app-managed-injection-elevation.md`. The XPC
+    helper from the branch's first pass is cut; `InjectionManager` UI/state and
+    the Dock handshake are reused.
+- [ ] Clean up and remove all redundant branches
+  - Delete `feature/config-file` (local; work already on master), and
+    `feature/releases-docs` (local + remote; commits already on master).
+  - Keep `feat/app-managed-injection` as the item-3 working branch.
+- [ ] (Maybe) Get app to properly refresh names of apps on current space after app add/remove — no need to switch spaces for consistent updates. More performant, efficient, reliable app name updates using yabai/system calls
+  - Deferred to post-1.0.0.
+
 ## Remaining Priorities
 
-1. Implement app-managed injection with a properly signed, narrowly scoped
-   privileged helper.
+1. Implement the production privileged-helper path (`SMAppService` launch
+   daemon + scoped XPC) once a Developer ID signing identity exists; v1.0.0
+   ships app-managed injection via system admin-prompt elevation instead.
 2. Add an injection handshake, health status, version reporting, and
    idempotency.
 3. Establish Developer ID signing and a reproducible release pipeline.
@@ -306,3 +352,17 @@ Use a bundle-originated handshake when app-managed injection is implemented.
    switching, and yabai JSON filtering.
 5. Continue validating private Mission Control layer compatibility on new
    macOS releases.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Labels match the defaults: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: one `CONTEXT.md` at the root, ADRs under `docs/adr/`. See `docs/agents/domain.md`.

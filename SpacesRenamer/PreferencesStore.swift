@@ -84,6 +84,7 @@ private struct StoredPreferences: Codable {
   var menuBarDisplayMode: MenuBarDisplayMode?
   var showDuplicateApplications: Bool?
   var automaticInjectionEnabled: Bool?
+  var injectionConsentGranted: Bool?
 }
 
 final class PreferencesStore: ObservableObject {
@@ -95,6 +96,7 @@ final class PreferencesStore: ObservableObject {
   @Published private(set) var menuBarDisplayMode: MenuBarDisplayMode
   @Published private(set) var showDuplicateApplications: Bool
   @Published private(set) var automaticInjectionEnabled: Bool
+  @Published private(set) var injectionConsentGranted: Bool?
   @Published private(set) var loginItemEnabled: Bool = false
   @Published var lastError: String?
 
@@ -121,6 +123,7 @@ final class PreferencesStore: ObservableObject {
       menuBarDisplayMode = stored.menuBarDisplayMode ?? .icon
       showDuplicateApplications = stored.showDuplicateApplications ?? false
       automaticInjectionEnabled = stored.automaticInjectionEnabled ?? false
+      injectionConsentGranted = stored.injectionConsentGranted
     } else {
       let migratedNames = Self.loadLegacyNames()
       let work = SpaceProfile(name: "Work", names: migratedNames)
@@ -133,6 +136,7 @@ final class PreferencesStore: ObservableObject {
       menuBarDisplayMode = .icon
       showDuplicateApplications = false
       automaticInjectionEnabled = false
+      injectionConsentGranted = nil
     }
     refreshLoginItemStatus()
     persist()
@@ -217,6 +221,14 @@ final class PreferencesStore: ObservableObject {
     persistAndNotify()
   }
 
+  func setInjectionConsent(_ granted: Bool) {
+    injectionConsentGranted = granted
+    if granted {
+      automaticInjectionEnabled = true
+    }
+    persistAndNotify()
+  }
+
   func applyGeneratedNames(from snapshot: [DisplaySpaces]) {
     guard namingMode != .manual else {
       if !lastGeneratedNames.isEmpty {
@@ -292,7 +304,8 @@ final class PreferencesStore: ObservableObject {
       showMenuBarIcon: showMenuBarIcon,
       menuBarDisplayMode: menuBarDisplayMode,
       showDuplicateApplications: showDuplicateApplications,
-      automaticInjectionEnabled: automaticInjectionEnabled
+      automaticInjectionEnabled: automaticInjectionEnabled,
+      injectionConsentGranted: injectionConsentGranted
     )
     if let data = try? JSONEncoder().encode(stored) {
       try? data.write(to: fileURL, options: .atomic)

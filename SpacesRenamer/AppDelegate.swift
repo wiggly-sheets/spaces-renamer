@@ -1,6 +1,5 @@
 import AppKit
 import Carbon.HIToolbox
-import Darwin
 import ServiceManagement
 import SwiftUI
 
@@ -210,7 +209,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private let preferences = PreferencesStore()
   private let spaces = SpaceStore()
-  private lazy var configFile = ConfigFile(preferences: preferences)
   private var statusItem: NSStatusItem!
   private let popover = NSPopover()
   private var settingsWindow: NSWindow?
@@ -218,6 +216,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var yabaiEventMonitor: YabaiEventMonitor?
   private var pendingAutomaticRefresh: DispatchWorkItem?
   private var observers: [NSObjectProtocol] = []
+
+  // Injected bundle manager for v1.0.0 app-managed injection
+  private let injection = InjectionManager()
 
   // MARK: - Application Lifecycle
 
@@ -239,6 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     DispatchQueue.main.async {
       NativeAppManagement.promptToMoveIfNeeded()
     }
+    // Start injection subsystem after preferences are ready
+    injection.start(preferences: preferences)
   }
 
   func application(_ application: NSApplication, open urls: [URL]) {
@@ -436,8 +439,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.representedObject = mode.rawValue
         menu.addItem(item)
       }
+      // Injection section (v1.0.0)
       menu.addItem(.separator())
-      menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
+      menu.addItem(NSMenuItem(title: "Injection", action: nil, keyEquivalent: ""))
+      let stateItem = NSMenuItem(title: injection.state.menuTitle, action: nil, keyEquivalent: "")
+      stateItem.state = .off // no rich state; we rely on detail text
+      menu.addItem(stateItem)
+      let injectItem = NSMenuItem(title: "Inject Dock Hook", action: #selector(injectFromMenu(_:)), keyEquivalent: "")
+      injectItem.representedObject = "inject"
+      injectItem.isEnabled = !injection.operationInProgress
+      menu.addItem(injectItem)
+      let reinjectItem = NSMenuItem(title: "Automatic Reinjection", action: #selector(toggleAutomaticInjection(_:)), keyEquivalent: "")
+      reinjectItem.state = preferences.automaticInjectionEnabled ? .on : .off
+      reinjectItem.representedObject = "auto"
+      menu.addItem(reinjectItem)
+
       statusItem.menu = menu
       statusItem.button?.performClick(nil)
       statusItem.menu = nil
@@ -465,6 +481,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     preferences.setNamingMode(mode)
   }
 
+  @objc private func injectFromMenu(_ sender: NSMenuItem) {
+    injection.injectNow()
+  }
+
+  @objc private func toggleAutomaticInjection(_ sender: NSMenuItem) {
+    if let isAuto = sender.representedObject as? String, isAuto == "auto" {
+      let now = !preferences.automaticInjectionEnabled
+      if now {
+        // Enabling requires explicit consent
+        preferences.setInjectionConsent(true)
+      } else {
+        preferences.setAutomaticInjectionEnabled(false)
+      }
+      injection.refresh(injectIfEnabled: preferences.automaticInjectionEnabled)
+    }
+  }
+
   @objc func openSettings() {
     if let settingsWindow {
       settingsWindow.makeKeyAndOrderFront(nil)
@@ -476,6 +509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       rootView: SettingsView()
         .environmentObject(preferences)
         .environmentObject(spaces)
+        .environmentObject(injection)
     )
     let window = NSWindow(contentViewController: controller)
     window.title = "Spaces Renamer Settings"
@@ -567,6 +601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     updateStatusItemContent()
     configureHotkey()
     refreshSpaces()
+    injection.refresh(injectIfEnabled: false)
   }
 
   // MARK: - Automatic Naming
@@ -592,6 +627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     spaces.refresh(for: preferences.namingMode, showDuplicateApplications: preferences.showDuplicateApplications)
     preferences.applyGeneratedNames(from: spaces.snapshot)
     updateStatusItemContent()
+    injection.refresh(injectIfEnabled: preferences.automaticInjectionEnabled && preferences.injectionConsentGranted == true)
   }
 
   private func configureHotkey() {
@@ -607,6 +643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     pendingAutomaticRefresh?.cancel()
     yabaiEventMonitor?.stop()
     observers.forEach(NotificationCenter.default.removeObserver)
+    injection.stop()
   }
 }
 

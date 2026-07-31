@@ -80,53 +80,52 @@ private struct InjectionSettingsView: View {
       Toggle("Automatically inject after Dock restarts", isOn: Binding(
         get: { preferences.automaticInjectionEnabled },
         set: {
-          preferences.setAutomaticInjectionEnabled($0)
+          if $0 {
+            // Enabling auto-inject requires consent first
+            preferences.setInjectionConsent(true)
+          } else {
+            preferences.setAutomaticInjectionEnabled(false)
+          }
           injection.refresh(injectIfEnabled: $0)
         }
       ))
-      .disabled(!helperAvailable)
+      .disabled(!isSupported)
 
-      Text("The app watches for a new Dock process and asks the installed helper to load only the bundled Spaces Renamer payload.")
+      Text("The app watches for a new Dock process and injects the bundled payload using an administrator prompt.")
         .font(.callout)
         .foregroundStyle(.secondary)
 
       HStack {
-        Button(helperAvailable ? "Update Helper…" : "Install Helper…") {
-          injection.installHelper()
-        }
-        .buttonStyle(.borderedProminent)
-
-        Button("Inject Now") {
+        Button(injectionStateIsInjected ? "Re-inject Dock Hook" : "Inject Dock Hook") {
           injection.injectNow()
         }
-        .disabled(!helperAvailable)
+        .buttonStyle(.borderedProminent)
 
         Button("Refresh") {
           injection.refresh()
         }
 
         Spacer()
-
-        if helperAvailable {
-          Button("Uninstall Helper…", role: .destructive) {
-            injection.uninstallHelper()
-          }
-        }
       }
-      .disabled(injection.operationInProgress)
+      .disabled(!isSupported || injection.operationInProgress)
 
-      Text("Installation is local and ad-hoc. macOS asks for an administrator password when installing, updating, or removing the root-owned helper. No paid Apple developer account is required.")
-        .font(.callout)
+      Text("Requires Apple silicon and reduced-security boot arguments (e.g., `-arm64e_preview_abi`). Each injection triggers the standard macOS admin prompt.")
+        .font(.caption)
         .foregroundStyle(.secondary)
     }
   }
 
-  private var helperAvailable: Bool {
+  private var isSupported: Bool {
     switch injection.state {
-    case .helperNotInstalled, .unsupported:
-      return false
-    default:
-      return true
+    case .unsupported: return false
+    default: return true
+    }
+  }
+
+  private var injectionStateIsInjected: Bool {
+    switch injection.state {
+    case .injected: return true
+    default: return false
     }
   }
 
@@ -134,7 +133,6 @@ private struct InjectionSettingsView: View {
     switch injection.state {
     case .injected: return .green
     case .error, .unsupported: return .red
-    case .helperNotInstalled: return .secondary
     default: return .accentColor
     }
   }
@@ -311,7 +309,7 @@ private struct HotkeySettingsView: View {
   }
 }
 
-private struct HotkeyRecorder: NSViewRepresentable {
+private final class HotkeyRecorder: NSViewRepresentable {
   @Binding var value: HotkeyPreference
 
   func makeCoordinator() -> Coordinator {
@@ -350,9 +348,8 @@ private final class HotkeyRecorderButton: NSButton {
     }
   }
   var onRecord: ((HotkeyPreference) -> Void)?
-
-  private var isRecording = false
-  private var eventMonitor: Any?
+  var isRecording = false
+  var eventMonitor: Any?
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
@@ -449,7 +446,7 @@ private final class HotkeyRecorderButton: NSButton {
     51: "⌫", 64: "F17", 79: "F18", 80: "F19", 90: "F20", 96: "F5",
     97: "F6", 98: "F7", 99: "F3", 100: "F8", 101: "F9", 103: "F11",
     105: "F13", 106: "F16", 107: "F14", 109: "F10", 111: "F12",
-    113: "F15", 115: "↖", 116: "⇞", 117: "⌦", 118: "F4", 119: "↘",
+    113: "F15", 115: "↖", 116: "⇞", 117: "F4", 118: "↘",
     120: "F2", 121: "⇟", 122: "F1", 123: "←", 124: "→", 125: "↓", 126: "↑"
   ]
 }
@@ -535,8 +532,6 @@ private struct AutomaticNamingSettingsView: View {
     }
   }
 }
-
-// MARK: - Yabai Status Checker
 
 private struct YabaiStatusView: View {
   @State private var yabaiResponding = false
