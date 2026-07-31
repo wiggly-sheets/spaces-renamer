@@ -2,8 +2,9 @@ PROJECT := spaces-renamer.xcodeproj
 DERIVED_DATA := .build/DerivedData
 XCODEBUILD := xcodebuild -project $(PROJECT) -configuration Release -derivedDataPath $(DERIVED_DATA) CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=NO
 APP := $(DERIVED_DATA)/Build/Products/Release/SpacesRenamer.app
+VERSION ?=
 
-.PHONY: app plugin package-injection universal verify clean test
+.PHONY: app plugin package-injection universal dmg background verify clean test
 
 app:
 	$(XCODEBUILD) -scheme SpacesRenamer 'ARCHS=arm64 x86_64' build
@@ -20,6 +21,12 @@ package-injection: plugin
 
 universal: app package-injection verify
 
+dmg: app
+	./packaging/make-dmg.sh $(VERSION)
+
+background:
+	swift packaging/render-background.swift packaging/background.png
+
 verify:
 	lipo -info "$(APP)/Contents/MacOS/SpacesRenamer"
 	lipo -info "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer"
@@ -28,6 +35,7 @@ verify:
 test:
 	./scripts/tests/test_release_notes.sh
 	./scripts/tests/test_bump_cask.sh
+	./scripts/tests/test_make_dmg.sh
 
 clean:
 	xcodebuild -project $(PROJECT) -scheme SpacesRenamer clean

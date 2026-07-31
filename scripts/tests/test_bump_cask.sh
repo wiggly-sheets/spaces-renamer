@@ -27,7 +27,7 @@ FIXTURE='cask "spacesrenamer" do
   version "0.9.0"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
 
-  url "https://github.com/wiggly-sheets/spaces-renamer/releases/download/v#{version}/SpacesRenamer-v#{version}.zip"
+  url "https://github.com/wiggly-sheets/spaces-renamer/releases/download/v#{version}/SpacesRenamer-v#{version}.dmg"
   name "Spaces Renamer"
   desc "Give macOS Spaces persistent names in Mission Control"
   homepage "https://github.com/wiggly-sheets/spaces-renamer"
@@ -55,7 +55,7 @@ assert_eq "bumps version line" '  version "1.0.0"' \
 assert_eq "bumps sha256 line" "  sha256 \"$SHA\"" \
   "$(grep -E '^  sha256 ' "$TMP/example.rb")"
 assert_eq "keeps url line intact" \
-  '  url "https://github.com/wiggly-sheets/spaces-renamer/releases/download/v#{version}/SpacesRenamer-v#{version}.zip"' \
+  '  url "https://github.com/wiggly-sheets/spaces-renamer/releases/download/v#{version}/SpacesRenamer-v#{version}.dmg"' \
   "$(grep -E '^  url ' "$TMP/example.rb")"
 assert_eq "keeps zap trash intact" \
   '    "~/Library/Application Support/SpacesRenamer",' \

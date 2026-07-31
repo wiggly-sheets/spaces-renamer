@@ -2,17 +2,19 @@
 #
 # Trigger: push a tag matching v* (e.g. v1.0.0)
 #
-# The workflow builds the universal app + bundle, packages them as a zip named
-# exactly as the Homebrew cask expects (SpacesRenamer-v<version>.zip), and
-# creates a GitHub Release with the archive and checksum attached. Release
-# notes are extracted from the CHANGELOG section matching the tag, falling back
-# to a generic note when no section exists. Stable tags publish stable
-# releases; prerelease tags (containing `-`) publish prereleases.
+# The workflow builds the universal app + bundle, packages them as a DMG named
+# exactly as the Homebrew cask expects (SpacesRenamer-v<version>.dmg) via
+# packaging/make-dmg.sh, and creates a GitHub Release with the DMG and checksum
+# attached. Release notes are extracted from the CHANGELOG section matching the
+# tag, falling back to a generic note when no section exists. Stable tags
+# publish stable releases; prerelease tags (containing `-`) publish
+# prereleases.
 #
 # After the release, stable tags bump homebrew/spacesrenamer.rb (version and
-# sha256), commit it to master, and push the same file to the
-# wiggly-sheets/homebrew-spacesrenamer tap repo using the existing GH_TOKEN
-# secret. Prerelease tags never touch the cask so stable installs stay intact.
+# sha256 of the published DMG), commit it to master, and push the same file to
+# the wiggly-sheets/homebrew-spacesrenamer tap repo using the existing
+# GH_TOKEN secret. Prerelease tags never touch the cask so stable installs stay
+# intact.
 #
 # A non-gating tap test then proves the tap works end-to-end on the arm64
 # runner. Intel (x86_64) verification stays a documented manual pre-release
@@ -21,7 +23,6 @@
 # Prerequisites for a production-quality release:
 #   - Developer ID Application certificate for signing
 #   - Notarization via `xcrun notarytool`
-#   - DMG or signed installer package
 # These are not yet implemented.
 
 name: Release
@@ -55,6 +56,9 @@ jobs:
       - name: Install GitHub CLI
         run: brew install gh
 
+      - name: Install create-dmg
+        run: brew install create-dmg
+
       - name: Build (universal)
         run: make universal
 
@@ -63,19 +67,17 @@ jobs:
           lipo -info .build/DerivedData/Build/Products/Release/SpacesRenamer.app/Contents/MacOS/SpacesRenamer
           lipo -info .build/DerivedData/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer
 
-      - name: Create Release Archive
+      - name: Create DMG
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ARCHIVE=".build/DerivedData/SpacesRenamer-v${VERSION}.zip"
-          ditto -c -k --sequesterRsrc \
+          ./packaging/make-dmg.sh "$VERSION" \
             ".build/DerivedData/Build/Products/Release/SpacesRenamer.app" \
-            "$ARCHIVE"
-          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+            ".build/DerivedData"
 
       - name: Create GitHub Release
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ARCHIVE=".build/DerivedData/SpacesRenamer-v${VERSION}.zip"
+          DMG=".build/DerivedData/SpacesRenamer-v${VERSION}.dmg"
           NOTES_FILE="$(mktemp)"
           trap 'rm -f "$NOTES_FILE"' EXIT
           scripts/release-notes.sh "$VERSION" > "$NOTES_FILE"
@@ -89,13 +91,13 @@ jobs:
             --notes-file "$NOTES_FILE" \
             $PRERELEASE
           gh release upload "$GITHUB_REF_NAME" \
-            "$ARCHIVE" "${ARCHIVE}.sha256"
+            "$DMG" "${DMG}.sha256"
 
       - name: Bump cask and commit to master
         if: ${{ !contains(github.ref_name, '-') }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          SHA256="$(cut -d' ' -f1 ".build/DerivedData/SpacesRenamer-v${VERSION}.zip.sha256")"
+          SHA256="$(cut -d' ' -f1 ".build/DerivedData/SpacesRenamer-v${VERSION}.dmg.sha256")"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # Drop build products touched in the workspace (e.g. the tracked

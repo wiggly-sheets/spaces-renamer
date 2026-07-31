@@ -107,8 +107,8 @@ Profiles are matched by `uuid` field if present, falling back to section name.
 
 ### Download from GitHub Releases
 
-1. Download `SpacesRenamer-v{VERSION}.zip` from the [Releases](https://github.com/wiggly-sheets/spaces-renamer/releases) page.
-2. Unzip and move `SpacesRenamer.app` to `/Applications`.
+1. Download `SpacesRenamer-v{VERSION}.dmg` from the [Releases](https://github.com/wiggly-sheets/spaces-renamer/releases) page.
+2. Open the DMG and drag `SpacesRenamer.app` to the Applications folder.
 3. macOS may block unsigned apps. Remove the quarantine attribute:
 
    ```bash

@@ -11,7 +11,18 @@ Cutting a release is two manual steps (prepare, tag); the Release workflow in
    changes. Release notes are extracted from this section, so write the notes
    once here. A missing or empty section is fine — the release falls back to a
    generic note and never fails.
-3. Commit and push the version bump and changelog.
+3. Sanity-check the DMG locally:
+
+   ```bash
+   brew install create-dmg   # required once
+   make dmg
+   open .build/DerivedData/SpacesRenamer-v<version>.dmg
+   ```
+
+   The volume must show `SpacesRenamer.app` over the placeholder background
+   with the baked-in "Drag to Applications" instructions and an Applications
+   drop-link — no stray files.
+4. Commit and push the version bump and changelog.
 
 ## Manual Intel (x86_64) pre-release check
 
@@ -39,15 +50,15 @@ git push origin v1.0.0
 The Release workflow then:
 
 1. builds the universal app + injection bundle;
-2. publishes `SpacesRenamer-v1.0.0.zip` plus a `.sha256` sidecar, named
-   exactly as the Homebrew cask expects;
+2. packages `SpacesRenamer-v1.0.0.dmg` (via `packaging/make-dmg.sh`) plus a
+   `.sha256` sidecar, named exactly as the Homebrew cask expects;
 3. creates the GitHub Release with the CHANGELOG section as the notes
    (prerelease only when the tag contains a dash);
 4. bumps `homebrew/spacesrenamer.rb` (version + sha256 from the published
-   archive), commits it to master, and pushes the same file to the
+   DMG), commits it to master, and pushes the same file to the
    `wiggly-sheets/homebrew-spacesrenamer` tap repo;
 5. runs a non-gating tap test (`brew tap` + `brew install --cask` + version
-   assert) on the arm64 runner.
+   assert) on the arm64 runner, installing from the DMG.
 
 Prerelease tags (e.g. `v1.0.0-rc.1`) create prerelease GitHub Releases but
 skip the cask bump and tap test, so the stable cask is never clobbered.
