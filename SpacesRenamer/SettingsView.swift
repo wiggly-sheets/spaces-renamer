@@ -3,6 +3,7 @@ import SwiftUI
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
   case general = "General"
+  case spaces = "Spaces"
   case profiles = "Profiles"
   case hotkey = "Hotkey"
   case automatic = "Naming"
@@ -12,6 +13,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
   var icon: String {
     switch self {
     case .general: return "gearshape"
+    case .spaces: return "rectangle.3.group"
     case .profiles: return "person.crop.rectangle.stack"
     case .hotkey: return "keyboard"
     case .automatic: return "wand.and.stars"
@@ -35,6 +37,7 @@ struct SettingsView: View {
       Group {
         switch selection ?? .general {
         case .general: GeneralSettingsView()
+        case .spaces: SpaceSettingsView()
         case .profiles: ProfileSettingsView()
         case .hotkey: HotkeySettingsView()
         case .automatic: AutomaticNamingSettingsView()
@@ -69,7 +72,7 @@ private struct InjectionSettingsView: View {
         }
       }
 
-      if let warning = injection.bootArgumentsWarning {
+      if let warning = injection.prerequisitesWarning {
         Label(warning, systemImage: "exclamationmark.triangle")
           .font(.callout)
           .foregroundStyle(.orange)
@@ -109,7 +112,7 @@ private struct InjectionSettingsView: View {
       }
       .disabled(!isSupported || injection.operationInProgress)
 
-      Text("Requires Apple silicon and reduced-security boot arguments (e.g., `-arm64e_preview_abi`). Each injection triggers the standard macOS admin prompt.")
+      Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP. The AMFI boot argument is needed only as troubleshooting on systems where task_for_pid is still denied. Each injection triggers the standard macOS admin prompt.")
         .font(.caption)
         .foregroundStyle(.secondary)
     }
@@ -124,7 +127,7 @@ private struct InjectionSettingsView: View {
 
   private var injectionStateIsInjected: Bool {
     switch injection.state {
-    case .injected: return true
+    case .loaded, .injected: return true
     default: return false
     }
   }
@@ -134,6 +137,62 @@ private struct InjectionSettingsView: View {
     case .injected: return .green
     case .error, .unsupported: return .red
     default: return .accentColor
+    }
+  }
+}
+
+private struct SpaceSettingsView: View {
+  @EnvironmentObject private var preferences: PreferencesStore
+  @EnvironmentObject private var spaces: SpaceStore
+
+  var body: some View {
+    SettingsPage(
+      title: "Spaces",
+      subtitle: "Rename Spaces in the active profile without using the menu bar"
+    ) {
+      HStack {
+        Label(preferences.activeProfile.name, systemImage: "person.crop.rectangle.stack")
+          .font(.headline)
+        Spacer()
+        if preferences.namingMode != .manual {
+          Text("Switch to Manual Profiles to edit")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      if let error = spaces.errorMessage {
+        Label(error, systemImage: "exclamationmark.triangle")
+          .foregroundStyle(.red)
+      } else {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            ForEach(spaces.snapshot) { display in
+              VStack(alignment: .leading, spacing: 8) {
+                if spaces.snapshot.count > 1 {
+                  Text(display.name)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+                LazyVGrid(
+                  columns: [GridItem(.adaptive(minimum: 190), spacing: 12)],
+                  spacing: 12
+                ) {
+                  ForEach(display.spaces) { space in
+                    SpaceNameCard(space: space)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    .onAppear {
+      spaces.refresh(
+        for: preferences.namingMode,
+        showDuplicateApplications: preferences.showDuplicateApplications
+      )
     }
   }
 }
@@ -309,14 +368,10 @@ private struct HotkeySettingsView: View {
   }
 }
 
-private final class HotkeyRecorder: NSViewRepresentable {
-    @Binding var value: HotkeyPreference
+private struct HotkeyRecorder: NSViewRepresentable {
+  @Binding var value: HotkeyPreference
 
-    init(value: Binding<HotkeyPreference>) {
-        self._value = value
-    }
-
-    func makeCoordinator() -> Coordinator {
+  func makeCoordinator() -> Coordinator {
     Coordinator(self)
   }
 
@@ -492,9 +547,10 @@ private struct AutomaticNamingSettingsView: View {
           .foregroundStyle(.secondary)
       }
 
-      Divider()
-
-      YabaiStatusView()
+      if preferences.namingMode != .manual {
+        Divider()
+        YabaiStatusView()
+      }
 
       Divider()
 
@@ -503,9 +559,20 @@ private struct AutomaticNamingSettingsView: View {
       ForEach(spaces.snapshot.flatMap(\.spaces)) { space in
         HStack {
           Text("Space \(space.index)")
+            .frame(width: 72, alignment: .leading)
           Spacer()
-          Text(previewName(for: space))
-            .foregroundStyle(.secondary)
+          if preferences.namingMode == .manual {
+            TextField("Unnamed", text: Binding(
+              get: { preferences.name(for: space.id) },
+              set: { preferences.setName($0, for: space.id) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 260)
+            .accessibilityLabel("Name for Space \(space.index)")
+          } else {
+            Text(previewName(for: space))
+              .foregroundStyle(.secondary)
+          }
         }
       }
     }
@@ -525,8 +592,7 @@ private struct AutomaticNamingSettingsView: View {
   private func previewName(for space: ManagedSpace) -> String {
     switch preferences.namingMode {
     case .manual:
-      let name = preferences.name(for: space.id)
-      return name.isEmpty ? "Unnamed" : name
+      return preferences.name(for: space.id)
     case .applications:
       return space.appNames.isEmpty
         ? "No detected apps"

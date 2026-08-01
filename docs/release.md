@@ -14,7 +14,7 @@ Cutting a release is two manual steps (prepare, tag); the Release workflow in
 3. Sanity-check the DMG locally:
 
    ```bash
-   brew install create-dmg   # required once
+   brew install create-dmg scdoc   # required once
    make dmg
    open .build/DerivedData/SpacesRenamer-v<version>.dmg
    ```

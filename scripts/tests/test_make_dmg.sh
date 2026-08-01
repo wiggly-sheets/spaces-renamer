@@ -95,7 +95,7 @@ else
 fi
 
 # 3. Version defaults to MARKETING_VERSION from the Xcode project.
-EXPECTED="$(grep -m1 'MARKETING_VERSION' "$ROOT/spaces-renamer.xcodeproj/project.pbxproj" \
+EXPECTED="$(grep -m1 -E '^[[:space:]]*MARKETING_VERSION = ' "$ROOT/spaces-renamer.xcodeproj/project.pbxproj" \
   | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' \
   | tr -d '[:space:]')"
 "$SCRIPT" "" "$TMP/SpacesRenamer.app" "$TMP/out3"

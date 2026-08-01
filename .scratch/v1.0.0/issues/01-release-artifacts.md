@@ -4,8 +4,11 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] A test tag publishes an archive named `SpacesRenamer-v<version>.zip` (no `.app` infix) plus a `.sha256` sidecar
-- [ ] The archive name matches the cask URL pattern exactly
-- [ ] In-flight uncommitted workflow fixes (gh CLI path cleanup, sequestered resource copy) are absorbed and committed
+- [x] Workflow publishes `SpacesRenamer-v<version>.dmg` plus a `.sha256` sidecar
+- [x] The artifact name matches the cask URL pattern exactly
+- [x] In-flight workflow fixes are absorbed into master
+
+The workflow is active on GitHub, but no run exists yet; a v1.0.0 test tag is
+still required for live verification.

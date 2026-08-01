@@ -4,8 +4,8 @@
 
 **Blocked by:** 11 — GUI-driven injection with admin-prompt elevation.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] First launch with injection off prompts for consent
-- [ ] Grant persists across launches and auto-injects silently on later launches
-- [ ] Declining leaves injection off and never prompts on every launch
+- [x] First launch with injection off prompts for consent
+- [x] Grant persists across launches and enables automatic injection on later launches
+- [x] Declining leaves injection off and never prompts on every launch

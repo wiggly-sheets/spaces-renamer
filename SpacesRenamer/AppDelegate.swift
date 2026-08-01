@@ -4,8 +4,8 @@ import ServiceManagement
 import SwiftUI
 
 /// Keeps automatic names fresh without polling. Yabai emits only when a
-/// window/Space change can affect the generated names; bursts are debounced by
-/// AppDelegate before the required yabai queries run.
+/// window/Space change can affect the generated names; AppDelegate coalesces
+/// bursts without allowing repeated move/resize events to starve the refresh.
 private final class YabaiEventMonitor {
   private static let events = [
     "application_hidden",
@@ -29,12 +29,12 @@ private final class YabaiEventMonitor {
 
   private let socketPath = "/tmp/spaces-renamer-\(getuid()).sock"
   private let queue = DispatchQueue(label: "com.wiggly-sheets.SpacesRenamer.yabai-events")
-  private let onChange: () -> Void
+  private let onChange: (String) -> Void
   private var server: Int32 = -1
   private var source: DispatchSourceRead?
   private var stopped = false
 
-  init(onChange: @escaping () -> Void) {
+  init(onChange: @escaping (String) -> Void) {
     self.onChange = onChange
     queue.async { [weak self] in self?.start() }
   }
@@ -89,17 +89,26 @@ private final class YabaiEventMonitor {
   private func acceptEvent() {
     let client = Darwin.accept(server, nil, nil)
     guard client >= 0 else { return }
-    var byte: UInt8 = 0
-    _ = read(client, &byte, 1)
+    var buffer = [UInt8](repeating: 0, count: 8)
+    let byteCount = read(client, &buffer, buffer.count)
     close(client)
-    DispatchQueue.main.async { [weak self] in self?.onChange() }
+    guard
+      byteCount > 0,
+      let rawIndex = String(bytes: buffer.prefix(byteCount), encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+      let index = Int(rawIndex),
+      Self.events.indices.contains(index)
+    else { return }
+    let event = Self.events[index]
+    DispatchQueue.main.async { [weak self] in self?.onChange(event) }
   }
 
   private func registerSignals() {
     guard Self.yabaiPath != nil else { return }
     removeSignals()
-    let action = "/bin/echo 1 | /usr/bin/nc -U \(socketPath)"
-    for event in Self.events {
+    for (index, event) in Self.events.enumerated() {
+      // `index` comes only from the fixed event allowlist above.
+      let action = "/usr/bin/printf \(index) | /usr/bin/nc -U \(socketPath)"
       _ = runYabai([
         "-m", "signal", "--add",
         "label=\(Self.label(for: event))",
@@ -215,24 +224,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var hotkeyMonitor: GlobalHotkeyMonitor?
   private var yabaiEventMonitor: YabaiEventMonitor?
   private var pendingAutomaticRefresh: DispatchWorkItem?
+  private var automaticRefreshGeneration = 0
   private var observers: [NSObjectProtocol] = []
 
-// Injected bundle manager for v1.0.0 app-managed injection
-    private var injection: InjectionManager!
-    private lazy var configFile = ConfigFile(preferences: preferences)
+  private var injection: InjectionManager!
+  private lazy var configFile = ConfigFile(preferences: preferences)
 
-   // MARK: - Application Lifecycle
+  // MARK: - Application Lifecycle
 
-@MainActor
-func applicationDidFinishLaunching(_ notification: Notification) {
-      NSApp.setActivationPolicy(.accessory)
-      ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
+  @MainActor
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    NSApp.setActivationPolicy(.accessory)
+    ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
 
-installCLISymlink()
-_ = configFile
-        // Initialize injection manager on main thread
-        injection = InjectionManager()
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    installCLISymlink()
+    installManPageSymlink()
+    _ = configFile
+    injection = InjectionManager()
+    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     statusItem.autosaveName = "SpacesRenamerStatusItem.v2"
     configureStatusItem()
     configurePopover()
@@ -243,8 +252,8 @@ _ = configFile
     DispatchQueue.main.async {
       NativeAppManagement.promptToMoveIfNeeded()
     }
-// Start injection subsystem after preferences are ready
-     injection.start(preferences: preferences)
+    injection.start(preferences: preferences)
+    promptForInjectionConsentIfNeeded()
   }
 
   func application(_ application: NSApplication, open urls: [URL]) {
@@ -355,6 +364,59 @@ _ = configFile
       NSLog("Symlinked \(symlinkPath.path) → \(resourcePath)")
     } catch {
       NSLog("Could not symlink CLI tool: \(error.localizedDescription)")
+    }
+  }
+
+  private func installManPageSymlink() {
+    guard let resource = Bundle.main.resourceURL?
+      .appendingPathComponent("man/man1/sr.1"),
+      FileManager.default.fileExists(atPath: resource.path)
+    else { return }
+
+    let directory = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".local/share/man/man1", isDirectory: true)
+    let destination = directory.appendingPathComponent("sr.1")
+    do {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      if FileManager.default.fileExists(atPath: destination.path) {
+        try FileManager.default.removeItem(at: destination)
+      }
+      try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: resource)
+    } catch {
+      NSLog("Could not install sr(1) man page: \(error.localizedDescription)")
+    }
+  }
+
+  @MainActor
+  private func promptForInjectionConsentIfNeeded() {
+    guard preferences.injectionConsentGranted == nil else { return }
+    let alert = NSAlert()
+    alert.messageText = "Allow Spaces Renamer to inject its Dock hook?"
+    alert.informativeText = "Injection is required to rename Spaces in Mission Control. It uses the bundled injector and shows the standard macOS administrator prompt. You can change this later in Settings."
+    alert.addButton(withTitle: "Allow")
+    alert.addButton(withTitle: "Not Now")
+    let granted = alert.runModal() == .alertFirstButtonReturn
+    preferences.setInjectionConsent(granted)
+    if granted {
+      injection.refresh()
+      if let warning = injection.prerequisitesWarning {
+        showInjectionSetupRequiredAlert(warning)
+      } else {
+        injection.injectNow()
+      }
+    }
+  }
+
+  @MainActor
+  private func showInjectionSetupRequiredAlert(_ warning: String) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Injection setup required"
+    alert.informativeText = "\(warning) Spaces Renamer saved your consent and will inject automatically after setup and restart."
+    alert.addButton(withTitle: "Open Injection Settings")
+    alert.addButton(withTitle: "Later")
+    if alert.runModal() == .alertFirstButtonReturn {
+      openSettings()
     }
   }
 
@@ -557,7 +619,7 @@ _ = configFile
         object: nil,
         queue: .main
       ) { [weak self] _ in
-        self?.preferencesChanged()
+        Task { @MainActor in self?.preferencesChanged() }
       }
     )
 
@@ -567,7 +629,7 @@ _ = configFile
         object: nil,
         queue: .main
       ) { [weak self] _ in
-        self?.refreshSpaces()
+        Task { @MainActor in self?.refreshSpaces() }
       }
     )
 
@@ -577,7 +639,7 @@ _ = configFile
         object: nil,
         queue: .main
       ) { [weak self] _ in
-        self?.refreshSpaces()
+        Task { @MainActor in self?.refreshSpaces() }
       }
     )
 
@@ -588,7 +650,7 @@ _ = configFile
         object: nil,
         queue: .main
       ) { [weak self] _ in
-        self?.scheduleAutomaticRefresh()
+        Task { @MainActor in self?.scheduleAutomaticRefresh() }
       }
     )
     observers.append(
@@ -597,13 +659,13 @@ _ = configFile
         object: nil,
         queue: .main
       ) { [weak self] _ in
-        self?.scheduleAutomaticRefresh()
+        Task { @MainActor in self?.scheduleAutomaticRefresh() }
       }
     )
   }
 
   @MainActor
-private func preferencesChanged() {
+  private func preferencesChanged() {
     statusItem.isVisible = preferences.showMenuBarIcon
     updateStatusItemContent()
     configureHotkey()
@@ -614,34 +676,56 @@ private func preferencesChanged() {
   // MARK: - Automatic Naming
 
   @MainActor
-private func configureAutomaticNameUpdates() {
-    yabaiEventMonitor = YabaiEventMonitor { [weak self] in
-      self?.scheduleAutomaticRefresh()
+  private func configureAutomaticNameUpdates() {
+    yabaiEventMonitor = YabaiEventMonitor { [weak self] event in
+      Task { @MainActor in self?.scheduleAutomaticRefresh(for: event) }
     }
   }
 
   @MainActor
-private func scheduleAutomaticRefresh() {
+  private func scheduleAutomaticRefresh(for event: String? = nil) {
     guard preferences.namingMode != .manual else { return }
-    pendingAutomaticRefresh?.cancel()
+    automaticRefreshGeneration += 1
+
+    // Dock begins constructing Mission Control immediately after this event.
+    // Publish the newest yabai snapshot before the injected hook reads it.
+    if event == "mission_control_enter" {
+      pendingAutomaticRefresh?.cancel()
+      pendingAutomaticRefresh = nil
+      refreshSpaces()
+      return
+    }
+
+    // Do not let a stream of move/resize events postpone refresh forever.
+    // The first pass is fixed; a second pass converges if the burst continued.
+    guard pendingAutomaticRefresh == nil else { return }
+    scheduleAutomaticRefreshPass(generation: automaticRefreshGeneration)
+  }
+
+  @MainActor
+  private func scheduleAutomaticRefreshPass(generation: Int) {
     let work = DispatchWorkItem { [weak self] in
-      self?.refreshSpaces()
-      self?.pendingAutomaticRefresh = nil
+      guard let self else { return }
+      self.refreshSpaces()
+      self.pendingAutomaticRefresh = nil
+      if self.automaticRefreshGeneration != generation {
+        self.scheduleAutomaticRefreshPass(generation: self.automaticRefreshGeneration)
+      }
     }
     pendingAutomaticRefresh = work
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
   }
 
   @MainActor
-private func refreshSpaces() {
+  private func refreshSpaces() {
     spaces.refresh(for: preferences.namingMode, showDuplicateApplications: preferences.showDuplicateApplications)
     preferences.applyGeneratedNames(from: spaces.snapshot)
     updateStatusItemContent()
-    injection.refresh(injectIfEnabled: preferences.automaticInjectionEnabled && preferences.injectionConsentGranted == true)
+    injection.refresh()
   }
 
   @MainActor
-private func configureHotkey() {
+  private func configureHotkey() {
     let p = preferences.hotkey
     hotkeyMonitor = GlobalHotkeyMonitor(keyCode: p.keyCode, modifiers: p.carbonModifiers) { [weak self] in
       DispatchQueue.main.async { self?.togglePopover() }

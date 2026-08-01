@@ -14,18 +14,22 @@
 #import <os/signpost.h>
 #import <unistd.h>
 
-static NSString *const SpacesRenamerPayloadVersion = @"1";
+#ifndef SPACES_RENAMER_VERSION
+#define SPACES_RENAMER_VERSION "unknown"
+#endif
+
+static NSString *const SpacesRenamerPayloadVersion = @SPACES_RENAMER_VERSION;
 static NSString *const SpacesRenamerInjectedNotification =
     @"com.wiggly-sheets.SpacesRenamer.Injected";
 
-__attribute__((constructor))
-static void reportSpacesRenamerInjection(void) {
+static void publishSpacesRenamerInjectionStatus(NSString *phase) {
   @autoreleasepool {
     NSDictionary *status = @{
       @"protocolVersion": @"1",
       @"payloadVersion": SpacesRenamerPayloadVersion,
       @"dockPID": @([[NSProcessInfo processInfo] processIdentifier]),
-      @"loadedAt": @([[NSDate date] timeIntervalSince1970])
+      @"loadedAt": @([[NSDate date] timeIntervalSince1970]),
+      @"phase": phase
     };
     NSData *data = [NSJSONSerialization dataWithJSONObject:status options:0 error:nil];
     NSString *path = [NSString stringWithFormat:
@@ -37,6 +41,11 @@ static void reportSpacesRenamerInjection(void) {
                     userInfo:status
           deliverImmediately:YES];
   }
+}
+
+__attribute__((constructor))
+static void reportSpacesRenamerInjection(void) {
+  publishSpacesRenamerInjectionStatus(@"loaded");
 }
 
 static char OVERRIDDEN_STRING;
@@ -79,9 +88,6 @@ static BOOL plistCacheInitialized = NO;
 #define kMaxDisplays 12
 
 int monitorIndex = 0;
-
-@interface ECMaterialLayer : CALayer
-@end
 
 static os_log_t performanceLog(void) {
   static os_log_t log;
@@ -376,9 +382,21 @@ static NSArray<Monitor *> *getNamesFromPlist(BOOL *cacheHit) {
   return cachedMonitors;
 }
 
+@interface CALayer (SpacesRenamerMissionControl)
+- (void)sre_applySpaceNamesForFrame:(CGRect)frame;
+- (BOOL)sre_isDesktopSwitcherFrame:(CGRect)frame;
+- (NSString *)sre_displayUUIDForFrame:(CGRect)frame;
+@end
+
 ZKSwizzleInterface(_SRCALayer, CALayer, CALayer);
 @implementation _SRCALayer
 - (void)setFrame:(CGRect)arg1 {
+  // Mission Control's concrete layer class can vary across macOS releases.
+  // Use the stable, cheap geometry/parent prefilter before the full display check.
+  if (arg1.origin.x == 0 && self.superlayer.class == [CALayer class]) {
+    [self sre_applySpaceNamesForFrame:arg1];
+  }
+
   CGRect orig = arg1;
   id possibleWidth = objc_getAssociatedObject(self, &OVERRIDDEN_WIDTH);
   if (possibleWidth && [possibleWidth isKindOfClass:[NSNumber class]] && self.class == [CALayer class]) {
@@ -473,11 +491,10 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
 
 @end
 
-ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
-@implementation _SRECMaterialLayer
-- (void)setFrame:(CGRect)arg1 {
+@implementation CALayer (SpacesRenamerMissionControl)
+- (void)sre_applySpaceNamesForFrame:(CGRect)arg1 {
   // Almost surely the desktop switcher
-  if ([self probablyDesktopSwitcher:arg1]) {
+  if ([self sre_isDesktopSwitcherFrame:arg1]) {
     NSOperatingSystemVersion macOS = NSProcessInfo.processInfo.operatingSystemVersion;
     bool bigSurOrNewer = (macOS.majorVersion >= 11 || macOS.minorVersion >= 16);
 
@@ -489,7 +506,6 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
     }
     CALayer *switcherContainer = rootLayer.sublayers.lastObject;
     if (switcherContainer.sublayers.count < 2) {
-      ZKOrig(void, arg1);
       return;
     }
     NSArray<CALayer *> *unexpandedViews = switcherContainer.sublayers[0].sublayers;
@@ -515,7 +531,6 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
         "cache_hit=%d changed=0 spaces=0",
         cacheHit
       );
-      ZKOrig(void, arg1);
       return;
     }
 
@@ -540,7 +555,7 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
       monitorIndex = matchingMonitor;
     } else {
       // If the size of the bar only matches one of the monitors, then use that one
-      NSString *displayUUID = [self getDisplayUUID:arg1];
+      NSString *displayUUID = [self sre_displayUUIDForFrame:arg1];
       if (displayUUID != nil) {
         for (int i = 0; i < names.count; i++) {
           if ([names[i].displayUUID isEqualToString:displayUUID]) {
@@ -617,6 +632,10 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
     if (layoutChanged) {
       refreshChangedViews(viewsNeedingRefresh);
     }
+    static dispatch_once_t hookVerifiedOnce;
+    dispatch_once(&hookVerifiedOnce, ^{
+      publishSpacesRenamerInjectionStatus(@"active");
+    });
     os_signpost_interval_end(
       log,
       signpostID,
@@ -628,11 +647,10 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
       (unsigned long)viewsNeedingRefresh.count
     );
   }
-  ZKOrig(void, arg1);
 }
 
 // (40 height unexpanded, 146 expanded), if it's relevant later
-- (BOOL)probablyDesktopSwitcher:(CGRect)rect {
+- (BOOL)sre_isDesktopSwitcherFrame:(CGRect)rect {
   // Must start at origin
   if (rect.origin.x != 0) {
     return false;
@@ -663,7 +681,7 @@ ZKSwizzleInterface(_SRECMaterialLayer, ECMaterialLayer, CALayer);
 // screens have the same number of spaces and the same ones selected
 // which is unlikely. Therefore it's better to eat that rare double
 // cost than fetch the UUID when it's not needed.
-- (NSString *)getDisplayUUID:(CGRect)rect {
+- (NSString *)sre_displayUUIDForFrame:(CGRect)rect {
   // Get all of the monitors
   CGDirectDisplayID displayArray[kMaxDisplays];
   uint32_t displayCount;

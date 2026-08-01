@@ -4,8 +4,8 @@
 
 **Blocked by:** 12 — Persistent consent flow.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [ ] Killing/restarting Dock triggers reinjection when the toggle is on
-- [ ] Launch-at-login reinjects after a computer restart
-- [ ] Toggle in Settings enables/disables automatic reinjection
+- [x] Launch-at-login reinjects after a computer restart
+- [x] Toggle in Settings enables/disables automatic reinjection

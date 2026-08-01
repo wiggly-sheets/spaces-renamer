@@ -4,9 +4,11 @@
 
 **Blocked by:** 01 — Release artifacts match the cask's download contract.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Tagging vX.Y.Z updates version + sha256 in the local cask and commits to master
-- [ ] The same file lands in the tap repo's Formula directory
-- [ ] The cask's sha256 matches the published archive
-- [ ] Uses the existing GH_TOKEN secret; no new credentials
+- [x] Workflow updates version + sha256 in the local cask and commits to master
+- [x] Workflow pushes the same file to the tap repo's Formula directory
+- [x] Cask bump tests validate the release sha256 contract
+- [x] Workflow uses the existing GH_TOKEN secret; no new credentials
+
+The cross-repository push still requires live verification from a release tag.

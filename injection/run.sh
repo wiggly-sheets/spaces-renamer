@@ -15,8 +15,9 @@ if [ "$(uname -p)" != "arm" ]; then
   _fail "Only arm is supported"
 fi
 
-if ! nvram boot-args | grep -q -E '(-arm64e_preview_abi|amfi_get_out_of_my_way=1)'; then
-  _fail "SIP was not disabled properly (required boot-args not present)"
+BOOT_ARGS="$(nvram boot-args 2>/dev/null || true)"
+if ! grep -q -- '-arm64e_preview_abi' <<<"$BOOT_ARGS"; then
+  _fail "Required boot argument is missing (-arm64e_preview_abi)"
 fi
 
 
@@ -30,4 +31,8 @@ if [ ! -f "$PACKAGE/spaces-renamer.dylib" ]; then
   _fail "dylib not found at: $PACKAGE/spaces-renamer.dylib"
 fi
 
-sudo "$PACKAGE/dylinject" com.apple.dock "$PACKAGE/spaces-renamer.dylib"
+if [ "$EUID" -eq 0 ]; then
+  "$PACKAGE/dylinject" com.apple.dock "$PACKAGE/spaces-renamer.dylib"
+else
+  sudo "$PACKAGE/dylinject" com.apple.dock "$PACKAGE/spaces-renamer.dylib"
+fi

@@ -4,18 +4,20 @@ import os
 
 enum InjectionState: Equatable {
     case unsupported(String)
-    case bootArgsWarning(String)
+    case prerequisitesMissing(String)
     case ready
     case injecting
-    case injected(pid: Int32)
+    case loaded(pid: Int32, payloadVersion: String)
+    case injected(pid: Int32, payloadVersion: String)
     case error(String)
 
     var title: String {
         switch self {
         case .unsupported: return "Unavailable"
-        case .bootArgsWarning: return "Boot arguments required"
+        case .prerequisitesMissing: return "Setup required"
         case .ready: return "Ready to inject"
         case .injecting: return "Injecting"
+        case .loaded: return "Injected — awaiting verification"
         case .injected: return "Injected"
         case .error: return "Needs attention"
         }
@@ -24,10 +26,13 @@ enum InjectionState: Equatable {
     var detail: String {
         switch self {
         case .unsupported(let reason): return reason
-        case .bootArgsWarning(let reason): return reason
-        case .ready: return "The required boot arguments are present; ready to inject."
+        case .prerequisitesMissing(let reason): return reason
+        case .ready: return "The required boot argument is present; ready to inject."
         case .injecting: return "Loading the bundled payload into Dock…"
-        case .injected(let pid): return "The current Dock process (PID \(pid)) has loaded Spaces Renamer."
+        case .loaded(let pid, let payloadVersion):
+            return "Dock PID \(pid) loaded payload version \(payloadVersion). Open Mission Control once to verify the renaming hook."
+        case .injected(let pid, let payloadVersion):
+            return "Dock PID \(pid) verified payload version \(payloadVersion) in Mission Control."
         case .error(let reason): return reason
         }
     }
@@ -35,9 +40,9 @@ enum InjectionState: Equatable {
     var symbol: String {
         switch self {
         case .injected: return "checkmark.circle.fill"
-        case .injecting: return "clock.arrow.circlepath"
+        case .injecting, .loaded: return "clock.arrow.circlepath"
         case .ready: return "checkmark.shield"
-        case .bootArgsWarning: return "exclamationmark.triangle.fill"
+        case .prerequisitesMissing: return "exclamationmark.triangle.fill"
         case .unsupported, .error: return "exclamationmark.triangle.fill"
         }
     }
@@ -47,7 +52,7 @@ enum InjectionState: Equatable {
 final class InjectionManager: ObservableObject {
     @Published private(set) var state: InjectionState = .ready
     @Published private(set) var operationInProgress = false
-    @Published private(set) var bootArgumentsWarning: String?
+    @Published private(set) var prerequisitesWarning: String?
 
     private weak var preferences: PreferencesStore?
     private var observers: [NSObjectProtocol] = []
@@ -56,9 +61,13 @@ final class InjectionManager: ObservableObject {
     private static let handshakeURL = URL(
         fileURLWithPath: "/tmp/spaces-renamer-injection-\(getuid()).json"
     )
-    private static let injectionScriptName = "run.sh"
-    private static let logger = Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "InjectionManager")
     private static let injectionProtocolVersion = "1"
+
+    private struct Handshake {
+        let dockPID: Int32
+        let payloadVersion: String
+        let hookActive: Bool
+    }
 
     // MARK: - Lifecycle
     func start(preferences: PreferencesStore) {
@@ -85,13 +94,12 @@ final class InjectionManager: ObservableObject {
             return
         }
         updateBootArgumentsWarning()
-        if let pid = injectedDockPID() {
-            state = .injected(pid: pid)
+        if let handshake = activeHandshake() {
+            updateState(from: handshake)
             return
         }
-        // Not injected
-        if case .bootArgsWarning = state {
-            // already shows warning, do not auto-inject
+        if let warning = prerequisitesWarning {
+            state = .prerequisitesMissing(warning)
             return
         }
         state = .ready
@@ -105,16 +113,12 @@ final class InjectionManager: ObservableObject {
             state = .unsupported("Dock injection is supported only on Apple silicon.")
             return
         }
-        guard case .bootArgsWarning = state else {
-            // boot arguments must be OK
-            guard let warning = bootArgumentsWarning, !warning.isEmpty else {
-                // no warning, proceed
-                injectionAttempt()
-                return
-            }
-            state = .bootArgsWarning(warning)
+        updateBootArgumentsWarning()
+        guard let warning = prerequisitesWarning else {
+            injectionAttempt()
             return
         }
+        state = .prerequisitesMissing(warning)
     }
 
     private func injectionAttempt() {
@@ -122,7 +126,7 @@ final class InjectionManager: ObservableObject {
         state = .injecting
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            let success = self.performInjectionViaAdminScript()
+            let success = Self.performInjectionViaAdminScript()
             let message = success ? "" : "Injection failed; see console for details."
             Task { @MainActor in
                 self.operationInProgress = false
@@ -160,39 +164,26 @@ final class InjectionManager: ObservableObject {
             process.waitUntilExit()
             let data = output.fileHandleForReading.readDataToEndOfFile()
             let arguments = String(decoding: data, as: UTF8.self)
-            let required = arguments.contains("-arm64e_preview_abi") ||
-                           arguments.contains("amfi_get_out_of_my_way=1")
-            bootArgumentsWarning = required ? nil : "Required reduced-security boot arguments were not detected."
-            // Update state based on warning
-            if let warning = bootArgumentsWarning, !warning.isEmpty {
-                if case .bootArgsWarning = state {
-                    // keep
-                } else {
-                    state = .bootArgsWarning(warning)
-                }
+            let requiredArguments = ["-arm64e_preview_abi"]
+            let tokens = Set(arguments.split(whereSeparator: \.isWhitespace).map(String.init))
+            let missingArguments = requiredArguments.filter { !tokens.contains($0) }
+            if missingArguments.isEmpty {
+                prerequisitesWarning = nil
             } else {
-                // clear warning; if currently showing warning, move to ready
-                if case .bootArgsWarning = state {
-                    state = .ready
-                }
+                let noun = missingArguments.count == 1 ? "argument" : "arguments"
+                prerequisitesWarning = "Missing required boot \(noun): \(missingArguments.joined(separator: " ")). SIP must also be disabled or partially disabled."
             }
         } catch {
-            bootArgumentsWarning = "Could not verify the required boot arguments."
-            if let warning = bootArgumentsWarning, !warning.isEmpty {
-                if case .bootArgsWarning = state {
-                    // keep
-                } else {
-                    state = .bootArgsWarning(warning)
-                }
-            }
+            prerequisitesWarning = "Could not verify the required boot argument."
         }
     }
 
-    private func performInjectionViaAdminScript() -> Bool {
+    nonisolated private static func performInjectionViaAdminScript() -> Bool {
         guard let scriptURL = Bundle.main.resourceURL?
                 .appendingPathComponent("Injection")
-                .appendingPathComponent(Self.injectionScriptName) else {
-            Self.logger.error("Injection script not found in bundle.")
+                .appendingPathComponent("run.sh") else {
+            Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "InjectionManager")
+                .error("Injection script not found in bundle.")
             return false
         }
         let scriptPath = scriptURL.path
@@ -203,18 +194,19 @@ final class InjectionManager: ObservableObject {
         var errorInfo: NSDictionary?
         let _ = appleScriptObj?.executeAndReturnError(&errorInfo)
         if let error = errorInfo {
-            Self.logger.error("AppleScript error: \(error)")
+            Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "InjectionManager")
+                .error("AppleScript error: \(error)")
             return false
         }
-        // If we got here without error, assume script succeeded (it exits 0 on success)
+        // A zero exit only starts handshake verification; it does not prove the payload loaded.
         return true
     }
 
-    private func shellQuoted(_ value: String) -> String {
+    nonisolated private static func shellQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private func appleScriptQuoted(_ value: String) -> String {
+    nonisolated private static func appleScriptQuoted(_ value: String) -> String {
         "\"" + value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"") + "\""
@@ -262,25 +254,47 @@ final class InjectionManager: ObservableObject {
     private func scheduleHandshakeCheck(expectedPID: Int32?) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self = self else { return }
-            if let pid = self.injectedDockPID(), expectedPID == nil || expectedPID == pid {
-                self.state = .injected(pid: pid)
+            if let handshake = self.activeHandshake(),
+               expectedPID == nil || expectedPID == handshake.dockPID {
+                self.updateState(from: handshake)
             } else {
                 self.state = .error("The injector finished, but Dock did not report the payload.")
             }
         }
     }
 
-    private func injectedDockPID() -> Int32? {
+    private func activeHandshake() -> Handshake? {
         guard
             let data = try? Data(contentsOf: Self.handshakeURL),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let protocolVersion = object["protocolVersion"] as? String,
             protocolVersion == Self.injectionProtocolVersion,
+            let payloadVersion = object["payloadVersion"] as? String,
+            !payloadVersion.isEmpty,
             let number = object["dockPID"] as? NSNumber
         else { return nil }
         let pid = number.int32Value
-        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.dock"
-            ? pid
-            : nil
+        guard NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.dock" else {
+            return nil
+        }
+        return Handshake(
+            dockPID: pid,
+            payloadVersion: payloadVersion,
+            hookActive: object["phase"] as? String == "active"
+        )
+    }
+
+    private func updateState(from handshake: Handshake) {
+        if handshake.hookActive {
+            state = .injected(
+                pid: handshake.dockPID,
+                payloadVersion: handshake.payloadVersion
+            )
+        } else {
+            state = .loaded(
+                pid: handshake.dockPID,
+                payloadVersion: handshake.payloadVersion
+            )
+        }
     }
 }

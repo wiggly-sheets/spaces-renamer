@@ -223,9 +223,7 @@ final class PreferencesStore: ObservableObject {
 
   func setInjectionConsent(_ granted: Bool) {
     injectionConsentGranted = granted
-    if granted {
-      automaticInjectionEnabled = true
-    }
+    automaticInjectionEnabled = granted
     persistAndNotify()
   }
 

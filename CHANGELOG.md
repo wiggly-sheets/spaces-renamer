@@ -5,10 +5,19 @@
 ### Added
 
 - [Ticket 10] Embed injection stack in app bundle: app bundle now carries full injection stack at build time (injection script, injector executable, payload) at a stable, code-signed-safe location
-- [Ticket 11] GUI-driven injection with admin-prompt elevation: Settings → Injection section shows health state + Inject button; clicking Inject runs the embedded stack via system password/Touch ID prompt; health reflects Dock handshake, not just injector exit
-- [Ticket 12] Persistent consent flow: first launch (or any launch while injection is off) asks for consent; grant persists and auto-injects silently on later launches; declining leaves injection off and never prompts every launch
+- [Ticket 11] GUI-driven injection with admin-prompt elevation: Settings → Injection shows health, Dock PID, payload version, and recovery controls; clicking Inject runs the embedded stack via the system password/Touch ID prompt; health reflects the Dock handshake, not just injector exit
+- [Ticket 12] Persistent consent flow: first launch asks for consent; a grant persists and enables automatic injection without another app-level consent prompt (the macOS administrator prompt still appears for each privileged run); declining leaves injection off and does not prompt again on every launch
 - [Ticket 13] Automatic reinjection: with consent granted, the app keeps itself injected — reinjects on Dock restart and at computer restart via existing launch-at-login; controlled by Settings toggle
 - [Ticket 14] Recovery affordances: two-click recovery when app running but injection inactive (e.g., Dock crashed/restarted while automation was off) — re-inject entry in menu bar plus Settings button; inactive state surfaced in menu bar + Settings
+- Space renaming in Settings, using the same per-display editor as the menu-bar popover
+- An `sr(1)` manual page generated with scdoc and bundled with the app
+
+### Changed
+
+- Injection setup now requires `-arm64e_preview_abi`, treats `amfi_get_out_of_my_way=1` as conditional troubleshooting, documents full and partial SIP configurations, and avoids nested `sudo` when the bundled script is already elevated
+- Dock-hook health now distinguishes payload loading from Mission Control verification, and the optimized hook uses a geometrically filtered `CALayer` entry path compatible with macOS 26.6
+- Yabai-driven application names now use a bounded event throttle with a trailing convergence pass, so move/resize bursts cannot postpone new-window names until the next Space change; Mission Control entry forces an immediate snapshot
+- Generated app bundles, legacy build directories, and Xcode project backup files are excluded or removed from the repository
 
 ## 0.9.0 (2026-07-30)
 

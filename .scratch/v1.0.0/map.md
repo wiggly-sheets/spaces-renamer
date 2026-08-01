@@ -19,6 +19,9 @@ tickets. Items 1–4 are in scope; item 5 is deferred to post-1.0.0.
 - 12 Persistent consent flow
 - 13 Automatic reinjection
 - 14 Recovery affordances
+- 15 Space renaming in Settings
+- 16 Injection security prerequisites documentation
+- 17 scdoc manual page
 
 ## Blocking structure
 
@@ -30,5 +33,6 @@ tickets. Items 1–4 are in scope; item 5 is deferred to post-1.0.0.
 - 08 → 10 → 11 → 12 → 13 — branch prep → embed → GUI injection → consent →
   automation (item 3)
 - 11 → 14 — recovery affordances, parallel to 12/13
+- 15, 16, 17 — independent v1.0.0 completion work
 
 Frontier (no blockers): 01, 02, 03, 08, 09.

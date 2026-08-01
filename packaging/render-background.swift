@@ -2,13 +2,11 @@
 //
 // Usage: swift render-background.swift [OUTPUT]
 //
-// Placeholder artwork: a plain white-to-grey gradient with the app name and
-// "Drag to Applications" instructions baked in, so the volume shows the app
-// and the install target with no stray files (no extra volume icons or
-// readmes). Coordinates use the same bottom-left origin create-dmg passes to
-// Finder (window 800x450, app icon at 200,190, Applications drop-link at
-// 600,190). The volume icon name is already visible under the app icon in
-// Finder, so the artwork does not repeat it.
+// Artwork: a restrained cool-grey gradient with matching source and destination
+// cards plus centered drag instructions. Finder positions icons using a
+// top-left origin, while AppKit draws the background from the bottom-left; the
+// card geometry accounts for that difference so the live icons and labels sit
+// squarely inside both cards.
 //
 // Output is deterministic: drawn into a fixed 1600x900 (2x) bitmap
 // regardless of the display the build machine has, so regenerating always
@@ -56,10 +54,11 @@ defer {
 
 let cg = ctx.cgContext
 
-// Background gradient: light grey at the bottom to white at the top.
+// Background gradient: a subtle cool grey that lets the purple app icon carry
+// the color without leaving the installer looking stark or unfinished.
 let colors = [
-  NSColor(calibratedWhite: 0.92, alpha: 1).cgColor,
-  NSColor(calibratedWhite: 0.98, alpha: 1).cgColor,
+  NSColor(calibratedRed: 0.925, green: 0.930, blue: 0.950, alpha: 1).cgColor,
+  NSColor(calibratedRed: 0.985, green: 0.985, blue: 0.992, alpha: 1).cgColor,
 ] as CFArray
 let gradient = CGGradient(
   colorsSpace: CGColorSpaceCreateDeviceRGB(),
@@ -92,46 +91,70 @@ func drawCentered(_ text: String, font: NSFont, color: NSColor, center: NSPoint)
 // Title.
 drawCentered(
   "Spaces Renamer",
-  font: .systemFont(ofSize: 32, weight: .semibold),
-  color: NSColor(calibratedWhite: 0.25, alpha: 1),
-  center: NSPoint(x: width / 2, y: 400)
+  font: .systemFont(ofSize: 31, weight: .semibold),
+  color: NSColor(calibratedWhite: 0.20, alpha: 1),
+  center: NSPoint(x: width / 2, y: 397)
 )
 
-// Applications drop zone on the right, centered on the drop-link position.
-let dropCenter = NSPoint(x: 600, y: 190)
-let dropRect = CGRect(
-  x: dropCenter.x - 90,
-  y: dropCenter.y - 85,
-  width: 180,
-  height: 170
-)
-cg.setStrokeColor(NSColor(calibratedWhite: 0.55, alpha: 1).cgColor)
-cg.setLineWidth(2)
-cg.setLineDash(phase: 0, lengths: [8, 5])
-cg.stroke(dropRect)
+func drawCard(centerX: CGFloat) {
+  let rect = CGRect(x: centerX - 98, y: 130, width: 196, height: 210)
+  let path = CGPath(
+    roundedRect: rect,
+    cornerWidth: 18,
+    cornerHeight: 18,
+    transform: nil
+  )
 
-// Instruction text, centered between the app icon (200) and the Applications
-// drop-link (600).
+  cg.saveGState()
+  cg.setShadow(
+    offset: CGSize(width: 0, height: -2),
+    blur: 10,
+    color: NSColor(calibratedWhite: 0.20, alpha: 0.13).cgColor
+  )
+  cg.setFillColor(NSColor(calibratedWhite: 1, alpha: 0.72).cgColor)
+  cg.addPath(path)
+  cg.fillPath()
+  cg.restoreGState()
+
+  cg.setStrokeColor(
+    NSColor(calibratedRed: 0.47, green: 0.40, blue: 0.72, alpha: 0.30).cgColor
+  )
+  cg.setLineWidth(1)
+  cg.addPath(path)
+  cg.strokePath()
+}
+
+// Finder places both items at y=190 from the top of the window. These equal
+// cards contain each live icon and its Finder-rendered label on one baseline.
+drawCard(centerX: 200)
+drawCard(centerX: 600)
+
+// Centered instruction and arrow form a compact third column between the two
+// matching cards.
 drawCentered(
   "Drag to Applications",
-  font: .systemFont(ofSize: 18, weight: .regular),
-  color: NSColor(calibratedWhite: 0.35, alpha: 1),
-  center: NSPoint(x: 400, y: 190)
+  font: .systemFont(ofSize: 16, weight: .medium),
+  color: NSColor(calibratedWhite: 0.32, alpha: 1),
+  center: NSPoint(x: 400, y: 282)
 )
 
-// Arrow below the text pointing to the Applications drop zone on the right.
-let arrowY: CGFloat = 115
-let arrowStartX: CGFloat = 300
-let arrowEndX: CGFloat = 500
-cg.setStrokeColor(NSColor(calibratedWhite: 0.55, alpha: 1).cgColor)
-cg.setLineWidth(3)
+let arrowY: CGFloat = 236
+let arrowStartX: CGFloat = 330
+let arrowEndX: CGFloat = 470
+cg.setStrokeColor(
+  NSColor(calibratedRed: 0.43, green: 0.36, blue: 0.68, alpha: 0.72).cgColor
+)
+cg.setLineWidth(2.5)
+cg.setLineCap(.round)
 cg.move(to: CGPoint(x: arrowStartX, y: arrowY))
 cg.addLine(to: CGPoint(x: arrowEndX, y: arrowY))
 cg.strokePath()
-cg.setFillColor(NSColor(calibratedWhite: 0.55, alpha: 1).cgColor)
+cg.setFillColor(
+  NSColor(calibratedRed: 0.43, green: 0.36, blue: 0.68, alpha: 0.72).cgColor
+)
 cg.move(to: CGPoint(x: arrowEndX, y: arrowY))
-cg.addLine(to: CGPoint(x: arrowEndX - 15, y: arrowY - 7))
-cg.addLine(to: CGPoint(x: arrowEndX - 15, y: arrowY + 7))
+cg.addLine(to: CGPoint(x: arrowEndX - 12, y: arrowY - 7))
+cg.addLine(to: CGPoint(x: arrowEndX - 12, y: arrowY + 7))
 cg.closePath()
 cg.fillPath()
 

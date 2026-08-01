@@ -11,7 +11,7 @@
 #   OUTPUT_DIR Directory for the .dmg and .sha256 sidecar.
 #              Default: .build/DerivedData
 #
-# The volume is prettified with packaging/background.png (placeholder artwork
+# The volume is prettified with packaging/background.png (matching icon cards
 # with baked-in "Drag to Applications" instructions) and an Applications
 # drop-link, so users see exactly the app and the install target — no stray
 # volume files. The window size and icon positions below must stay aligned
@@ -28,7 +28,7 @@ OUTPUT_DIR="${3:-$ROOT/.build/DerivedData}"
 BACKGROUND="$ROOT/packaging/background.png"
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(grep -m1 'MARKETING_VERSION' "$ROOT/spaces-renamer.xcodeproj/project.pbxproj" \
+  VERSION="$(grep -m1 -E '^[[:space:]]*MARKETING_VERSION = ' "$ROOT/spaces-renamer.xcodeproj/project.pbxproj" \
     | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' \
     | tr -d '[:space:]')"
 fi

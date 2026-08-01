@@ -14,6 +14,7 @@ Spaces Renamer gives macOS Spaces persistent, useful names in Mission Control. T
 - Native macOS launch-at-login support
 - Native prompt to move the app into `/Applications`
 - CLI tool (`sr`) for scripting and quick actions
+- scdoc-generated `sr(1)` manual page
 - Deeplink URL scheme (`spacesrenamer://`) for integration
 - Config file (`~/.config/spacesrenamer/config.toml`) for external profile management
 - Universal app binary (`arm64` + `x86_64`)
@@ -47,6 +48,7 @@ sr naming applications     # Set apps-in-space mode (requires yabai)
 sr naming yabaiLabels      # Set yabai labels mode (requires yabai)
 sr space <uuid> name <n>   # Set a manual name for a Space
 sr help                    # Print usage
+man sr                     # Read the full manual page
 ```
 
 If `sr` is not found:
@@ -132,7 +134,13 @@ Build products:
 .build/DerivedData/Build/Products/Release/spaces-renamer.bundle
 ```
 
-`make universal` verifies the architectures with `lipo`.
+`make universal` verifies the architectures with `lipo`. The build also uses
+`scdoc` to generate and bundle `sr(1)`:
+
+```bash
+brew install scdoc
+make man
+```
 
 | Artifact | Architectures |
 | -------- | ------------- |
@@ -150,7 +158,29 @@ The repository's `injection/` folder contains the current `dylinject` workflow:
 
 The supplied injector is currently `arm64e`-only. The Xcode Dock-bundle target also emits an `x86_64` slice, but Intel injection needs a compatible Intel injector.
 
-The injector workflow requires reduced macOS security protections. Review the script and understand the SIP/AMFI implications before running it. Building the app does not run the injector or restart Dock.
+The injector workflow requires Apple silicon, the `-arm64e_preview_abi` boot argument, and either fully or partially disabled System Integrity Protection (SIP). These settings materially reduce macOS security. Review and understand the implications before changing them. Building the app does not run the injector, modify security settings, or restart Dock.
+
+Set the required boot argument with:
+
+```bash
+sudo nvram boot-args="-arm64e_preview_abi"
+```
+
+`amfi_get_out_of_my_way=1` is not universally required. It is an optional troubleshooting measure for systems where the injector still cannot obtain the Dock task port. If you need it, preserve the required argument by setting both values in one command: `sudo nvram boot-args="-arm64e_preview_abi amfi_get_out_of_my_way=1"`.
+
+From macOS Recovery, either disable SIP fully:
+
+```bash
+csrutil disable
+```
+
+or use the narrower configuration currently supported by this project:
+
+```bash
+csrutil enable --without fs --without debug --without nvram
+```
+
+Restart after changing these settings. Spaces Renamer checks the required boot argument; it does not change or reliably inspect SIP configuration for you.
 
 ### Profiling the Dock hook
 
