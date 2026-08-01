@@ -160,6 +160,8 @@ The supplied injector is currently `arm64e`-only. The Xcode Dock-bundle target a
 
 The injector workflow requires Apple silicon, the `-arm64e_preview_abi` boot argument, and either fully or partially disabled System Integrity Protection (SIP). These settings materially reduce macOS security. Review and understand the implications before changing them. Building the app does not run the injector, modify security settings, or restart Dock.
 
+On first launch, the app asks whether to enable Dock renaming and offers Launch at Login as a recommended option. Keeping Dock renaming active lets the app detect a new Dock process after a Dock or computer restart, but every injection still shows the standard macOS administrator-authorization prompt. Cancelling that prompt suppresses further automatic requests for the same Dock process; use Settings → Injection → Inject Now to retry.
+
 Set the required boot argument with:
 
 ```bash
@@ -180,7 +182,7 @@ or use the narrower configuration currently supported by this project:
 csrutil enable --without fs --without debug --without nvram
 ```
 
-Restart after changing these settings. Spaces Renamer checks the required boot argument; it does not change or reliably inspect SIP configuration for you.
+Restart after changing these settings. Spaces Renamer checks both the required boot argument and SIP status; it never changes either setting for you.
 
 ### Profiling the Dock hook
 

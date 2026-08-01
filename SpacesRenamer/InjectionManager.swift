@@ -7,8 +7,11 @@ enum InjectionState: Equatable {
     case prerequisitesMissing(String)
     case ready
     case injecting
+    case restartingDock
     case loaded(pid: Int32, payloadVersion: String)
     case injected(pid: Int32, payloadVersion: String)
+    case updateRequired(pid: Int32, loadedVersion: String, bundledVersion: String)
+    case authorizationCancelled(pid: Int32?)
     case error(String)
 
     var title: String {
@@ -17,8 +20,11 @@ enum InjectionState: Equatable {
         case .prerequisitesMissing: return "Setup required"
         case .ready: return "Ready to inject"
         case .injecting: return "Injecting"
+        case .restartingDock: return "Restarting Dock"
         case .loaded: return "Injected — awaiting verification"
         case .injected: return "Injected"
+        case .updateRequired: return "Dock hook update required"
+        case .authorizationCancelled: return "Authorization cancelled"
         case .error: return "Needs attention"
         }
     }
@@ -27,12 +33,17 @@ enum InjectionState: Equatable {
         switch self {
         case .unsupported(let reason): return reason
         case .prerequisitesMissing(let reason): return reason
-        case .ready: return "The required boot argument is present; ready to inject."
+        case .ready: return "The boot argument and System Integrity Protection configuration are ready for injection."
         case .injecting: return "Loading the bundled payload into Dock…"
+        case .restartingDock: return "Waiting for macOS to relaunch Dock before injecting the bundled payload…"
         case .loaded(let pid, let payloadVersion):
             return "Dock PID \(pid) loaded payload version \(payloadVersion). Open Mission Control once to verify the renaming hook."
         case .injected(let pid, let payloadVersion):
             return "Dock PID \(pid) verified payload version \(payloadVersion) in Mission Control."
+        case .updateRequired(let pid, let loadedVersion, let bundledVersion):
+            return "Dock PID \(pid) is running payload \(loadedVersion), but this app contains \(bundledVersion). Click Inject Now to approve a Dock restart and update it."
+        case .authorizationCancelled:
+            return "The administrator prompt was cancelled. Automatic reinjection will not ask again for this Dock process; click Inject Now to retry."
         case .error(let reason): return reason
         }
     }
@@ -40,9 +51,10 @@ enum InjectionState: Equatable {
     var symbol: String {
         switch self {
         case .injected: return "checkmark.circle.fill"
-        case .injecting, .loaded: return "clock.arrow.circlepath"
+        case .injecting, .restartingDock, .loaded: return "clock.arrow.circlepath"
         case .ready: return "checkmark.shield"
-        case .prerequisitesMissing: return "exclamationmark.triangle.fill"
+        case .prerequisitesMissing, .updateRequired, .authorizationCancelled:
+            return "exclamationmark.triangle.fill"
         case .unsupported, .error: return "exclamationmark.triangle.fill"
         }
     }
@@ -57,11 +69,24 @@ final class InjectionManager: ObservableObject {
     private weak var preferences: PreferencesStore?
     private var observers: [NSObjectProtocol] = []
     private var reinjectionWorkItem: DispatchWorkItem?
+    private var pendingInjectionAfterDockRestart = false
 
     private static let handshakeURL = URL(
         fileURLWithPath: "/tmp/spaces-renamer-injection-\(getuid()).json"
     )
     private static let injectionProtocolVersion = "1"
+    private static let cancelledDockPIDDefaultsKey = "cancelledAutomaticInjectionDockPID"
+
+    private static var bundledPayloadVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "unknown"
+    }
+
+    private enum InjectionAttemptResult: Sendable {
+        case success
+        case cancelled
+        case failed(String)
+    }
 
     private struct Handshake {
         let dockPID: Int32
@@ -75,7 +100,7 @@ final class InjectionManager: ObservableObject {
         checkPlatform()
         guard case .unsupported = state else {
             observeDockAndPayload()
-            refresh(injectIfEnabled: true)
+            refresh()
             return
         }
     }
@@ -93,46 +118,66 @@ final class InjectionManager: ObservableObject {
             state = .unsupported("Dock injection is supported only on Apple silicon.")
             return
         }
-        updateBootArgumentsWarning()
+        guard !operationInProgress else { return }
+        updatePrerequisitesWarning()
         if let handshake = activeHandshake() {
-            updateState(from: handshake)
+            updateStateOrVersionWarning(from: handshake)
             return
         }
         if let warning = prerequisitesWarning {
             state = .prerequisitesMissing(warning)
             return
         }
+        let dockPID = currentDockPID
+        if automaticInjectionWasCancelled(for: dockPID) {
+            state = .authorizationCancelled(pid: dockPID)
+            return
+        }
         state = .ready
         if injectIfEnabled, preferences?.automaticInjectionEnabled == true {
-            injectNow()
+            injectionAttempt(expectedPID: dockPID)
         }
     }
 
     func injectNow() {
+        guard !operationInProgress else { return }
         guard isAppleSilicon else {
             state = .unsupported("Dock injection is supported only on Apple silicon.")
             return
         }
-        updateBootArgumentsWarning()
+        clearCancelledDockPID()
+        updatePrerequisitesWarning()
         guard let warning = prerequisitesWarning else {
-            injectionAttempt()
+            if let handshake = activeHandshake() {
+                if handshake.payloadVersion == Self.bundledPayloadVersion {
+                    updateState(from: handshake)
+                } else {
+                    requestDockRestartForUpdate(handshake: handshake)
+                }
+                return
+            }
+            injectionAttempt(expectedPID: currentDockPID)
             return
         }
         state = .prerequisitesMissing(warning)
     }
 
-    private func injectionAttempt() {
+    private func injectionAttempt(expectedPID: Int32?) {
+        guard !operationInProgress else { return }
         operationInProgress = true
         state = .injecting
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            let success = Self.performInjectionViaAdminScript()
-            let message = success ? "" : "Injection failed; see console for details."
+            let result = Self.performInjectionViaAdminScript()
             Task { @MainActor in
                 self.operationInProgress = false
-                if success {
-                    self.scheduleHandshakeCheck(expectedPID: nil)
-                } else {
+                switch result {
+                case .success:
+                    self.scheduleHandshakeCheck(expectedPID: expectedPID)
+                case .cancelled:
+                    self.rememberCancelledDockPID(expectedPID)
+                    self.state = .authorizationCancelled(pid: expectedPID)
+                case .failed(let message):
                     self.state = .error(message)
                 }
             }
@@ -152,7 +197,9 @@ final class InjectionManager: ObservableObject {
         }
     }
 
-    private func updateBootArgumentsWarning() {
+    private func updatePrerequisitesWarning() {
+        var problems: [String] = []
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/nvram")
         process.arguments = ["boot-args"]
@@ -167,24 +214,56 @@ final class InjectionManager: ObservableObject {
             let requiredArguments = ["-arm64e_preview_abi"]
             let tokens = Set(arguments.split(whereSeparator: \.isWhitespace).map(String.init))
             let missingArguments = requiredArguments.filter { !tokens.contains($0) }
-            if missingArguments.isEmpty {
-                prerequisitesWarning = nil
-            } else {
+            if !missingArguments.isEmpty {
                 let noun = missingArguments.count == 1 ? "argument" : "arguments"
-                prerequisitesWarning = "Missing required boot \(noun): \(missingArguments.joined(separator: " ")). SIP must also be disabled or partially disabled."
+                problems.append("Missing required boot \(noun): \(missingArguments.joined(separator: " ")).")
             }
         } catch {
-            prerequisitesWarning = "Could not verify the required boot argument."
+            problems.append("Could not verify the required boot argument.")
         }
+
+        let sipProcess = Process()
+        sipProcess.executableURL = URL(fileURLWithPath: "/usr/bin/csrutil")
+        sipProcess.arguments = ["status"]
+        let sipOutput = Pipe()
+        sipProcess.standardOutput = sipOutput
+        sipProcess.standardError = sipOutput
+        do {
+            try sipProcess.run()
+            sipProcess.waitUntilExit()
+            let data = sipOutput.fileHandleForReading.readDataToEndOfFile()
+            let status = String(decoding: data, as: UTF8.self).lowercased()
+            if status.contains("custom configuration") {
+                let requiredDisabledProtections = [
+                    "filesystem protections: disabled",
+                    "debugging restrictions: disabled",
+                    "nvram protections: disabled",
+                ]
+                let missingProtections = requiredDisabledProtections.filter {
+                    !status.contains($0)
+                }
+                if !missingProtections.isEmpty {
+                    problems.append("The partial System Integrity Protection configuration must disable filesystem, debugging, and NVRAM protections.")
+                }
+            } else if status.contains("status: enabled") {
+                problems.append("System Integrity Protection is fully enabled; disable it or use the documented partial configuration.")
+            } else if !status.contains("status: disabled") {
+                problems.append("Could not verify that System Integrity Protection is disabled or partially disabled.")
+            }
+        } catch {
+            problems.append("Could not verify System Integrity Protection status.")
+        }
+
+        prerequisitesWarning = problems.isEmpty ? nil : problems.joined(separator: " ")
     }
 
-    nonisolated private static func performInjectionViaAdminScript() -> Bool {
+    nonisolated private static func performInjectionViaAdminScript() -> InjectionAttemptResult {
         guard let scriptURL = Bundle.main.resourceURL?
                 .appendingPathComponent("Injection")
                 .appendingPathComponent("run.sh") else {
             Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "InjectionManager")
                 .error("Injection script not found in bundle.")
-            return false
+            return .failed("The bundled injection script could not be found.")
         }
         let scriptPath = scriptURL.path
         // Build command: /bin/bash <script_path>
@@ -196,10 +275,15 @@ final class InjectionManager: ObservableObject {
         if let error = errorInfo {
             Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "InjectionManager")
                 .error("AppleScript error: \(error)")
-            return false
+            if (error["NSAppleScriptErrorNumber"] as? NSNumber)?.intValue == -128 {
+                return .cancelled
+            }
+            let message = error["NSAppleScriptErrorMessage"] as? String
+                ?? "Injection failed; see Console for details."
+            return .failed(message)
         }
         // A zero exit only starts handshake verification; it does not prove the payload loaded.
-        return true
+        return .success
     }
 
     nonisolated private static func shellQuoted(_ value: String) -> String {
@@ -210,6 +294,68 @@ final class InjectionManager: ObservableObject {
         "\"" + value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    private var currentDockPID: Int32? {
+        NSWorkspace.shared.runningApplications.first {
+            $0.bundleIdentifier == "com.apple.dock"
+        }?.processIdentifier
+    }
+
+    private func automaticInjectionWasCancelled(for pid: Int32?) -> Bool {
+        guard let pid else { return false }
+        let storedPID = UserDefaults.standard.object(
+            forKey: Self.cancelledDockPIDDefaultsKey
+        ) as? NSNumber
+        if storedPID?.int32Value == pid {
+            return true
+        }
+        if storedPID != nil {
+            clearCancelledDockPID()
+        }
+        return false
+    }
+
+    private func rememberCancelledDockPID(_ pid: Int32?) {
+        guard let pid else { return }
+        UserDefaults.standard.set(Int(pid), forKey: Self.cancelledDockPIDDefaultsKey)
+    }
+
+    private func clearCancelledDockPID() {
+        UserDefaults.standard.removeObject(forKey: Self.cancelledDockPIDDefaultsKey)
+    }
+
+    private func requestDockRestartForUpdate(handshake: Handshake) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Restart Dock to update its hook?"
+        alert.informativeText = "Dock is running Spaces Renamer \(handshake.payloadVersion), while this app contains \(Self.bundledPayloadVersion). Mission Control will close briefly. macOS will then request administrator approval to inject the updated hook."
+        alert.addButton(withTitle: "Restart Dock and Update")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            updateStateOrVersionWarning(from: handshake)
+            return
+        }
+
+        guard let dock = NSRunningApplication(processIdentifier: handshake.dockPID) else {
+            state = .error("Could not find the running Dock process.")
+            return
+        }
+        pendingInjectionAfterDockRestart = true
+        operationInProgress = true
+        state = .restartingDock
+        guard dock.terminate() else {
+            pendingInjectionAfterDockRestart = false
+            operationInProgress = false
+            state = .error("Dock did not accept the restart request. Restart Dock manually, then click Inject Now.")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+            guard let self, self.pendingInjectionAfterDockRestart else { return }
+            self.pendingInjectionAfterDockRestart = false
+            self.operationInProgress = false
+            self.state = .error("Dock did not relaunch in time. Restart Dock manually, then click Inject Now.")
+        }
     }
 
     // MARK: - Observation
@@ -224,7 +370,7 @@ final class InjectionManager: ObservableObject {
                     as? NSRunningApplication,
                 application.bundleIdentifier == "com.apple.dock"
             else { return }
-            Task { @MainActor in self?.dockDidRestart() }
+            Task { @MainActor in self?.dockDidRestart(pid: application.processIdentifier) }
         })
         DistributedNotificationCenter.default().addObserver(
             self,
@@ -238,14 +384,25 @@ final class InjectionManager: ObservableObject {
         refresh()
     }
 
-    private func dockDidRestart() {
+    private func dockDidRestart(pid: Int32) {
         reinjectionWorkItem?.cancel()
-        guard preferences?.automaticInjectionEnabled == true else {
+        if !automaticInjectionWasCancelled(for: pid) {
+            clearCancelledDockPID()
+        }
+        let shouldInject = pendingInjectionAfterDockRestart
+            || preferences?.automaticInjectionEnabled == true
+        guard shouldInject else {
+            operationInProgress = false
             refresh()
             return
         }
         let work = DispatchWorkItem { [weak self] in
-            Task { @MainActor in self?.refresh(injectIfEnabled: true) }
+            Task { @MainActor in
+                guard let self else { return }
+                self.pendingInjectionAfterDockRestart = false
+                self.operationInProgress = false
+                self.refresh(injectIfEnabled: true)
+            }
         }
         reinjectionWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
@@ -296,5 +453,18 @@ final class InjectionManager: ObservableObject {
                 payloadVersion: handshake.payloadVersion
             )
         }
+    }
+
+    private func updateStateOrVersionWarning(from handshake: Handshake) {
+        let bundledVersion = Self.bundledPayloadVersion
+        guard handshake.payloadVersion != bundledVersion else {
+            updateState(from: handshake)
+            return
+        }
+        state = .updateRequired(
+            pid: handshake.dockPID,
+            loadedVersion: handshake.payloadVersion,
+            bundledVersion: bundledVersion
+        )
     }
 }

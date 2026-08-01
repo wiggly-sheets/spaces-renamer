@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.0.1 (2026-08-01)
+
+### Changed
+
+- Injection onboarding now runs after the move-to-Applications decision, offers Launch at Login as a recommended first-run choice, and explains that macOS requests administrator approval after Dock and computer restarts.
+- Injection Settings now groups “Keep Dock renaming active,” Launch at Login, restart coverage, readiness, and a single Inject Now recovery action.
+
+### Fixed
+
+- Injection health rejects stale payload versions, checks both the boot argument and required SIP configuration, distinguishes cancelled authorization from failure, suppresses repeated prompts for the same Dock PID, and prevents overlapping injection attempts.
+- Updating an outdated hook now requires an explicit Dock-restart confirmation before the new bundled payload is injected.
+
 ## 1.0.0 (2026-08-01)
 
 ### Added

@@ -259,7 +259,8 @@ final class PreferencesStore: ObservableObject {
     persistAndNotify()
   }
 
-  func setLoginItemEnabled(_ enabled: Bool) {
+  @discardableResult
+  func setLoginItemEnabled(_ enabled: Bool) -> Bool {
     do {
       if enabled {
         try SMAppService.mainApp.register()
@@ -267,10 +268,14 @@ final class PreferencesStore: ObservableObject {
         try SMAppService.mainApp.unregister()
       }
       refreshLoginItemStatus()
+      lastError = loginItemEnabled == enabled
+        ? nil
+        : "macOS did not apply the Launch at Login change. Check System Settings → General → Login Items."
     } catch {
       lastError = error.localizedDescription
       refreshLoginItemStatus()
     }
+    return loginItemEnabled == enabled
   }
 
   func refreshLoginItemStatus() {
@@ -342,22 +347,28 @@ enum NativeAppManagement {
     Bundle.main.bundleURL.path.hasPrefix("/Applications/")
   }
 
-  static func promptToMoveIfNeeded() {
-    guard !isInApplicationsFolder, !UserDefaults.standard.bool(forKey: "declinedMoveToApplications") else { return }
+  /// Returns true when a copy in /Applications is being launched and this
+  /// process will terminate. Callers must stop onboarding in that case.
+  static func promptToMoveIfNeeded() -> Bool {
+    guard !isInApplicationsFolder, !UserDefaults.standard.bool(forKey: "declinedMoveToApplications") else {
+      return false
+    }
     let alert = NSAlert()
     alert.messageText = "Move Spaces Renamer to Applications?"
     alert.informativeText = "Keeping the app in Applications makes launch at login and updates more reliable."
     alert.addButton(withTitle: "Move to Applications")
     alert.addButton(withTitle: "Not Now")
     if alert.runModal() == .alertFirstButtonReturn {
-      moveToApplications()
+      return moveToApplications()
     } else {
       UserDefaults.standard.set(true, forKey: "declinedMoveToApplications")
+      return false
     }
   }
 
-  static func moveToApplications() {
-    guard !isInApplicationsFolder else { return }
+  @discardableResult
+  static func moveToApplications() -> Bool {
+    guard !isInApplicationsFolder else { return false }
     let destination = URL(fileURLWithPath: "/Applications").appendingPathComponent(Bundle.main.bundleURL.lastPathComponent)
     do {
       guard !FileManager.default.fileExists(atPath: destination.path) else {
@@ -373,8 +384,10 @@ enum NativeAppManagement {
           NSApp.terminate(nil)
         }
       }
+      return true
     } catch {
       presentError(error)
+      return false
     }
   }
 

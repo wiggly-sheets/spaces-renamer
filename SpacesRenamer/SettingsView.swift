@@ -80,7 +80,7 @@ private struct InjectionSettingsView: View {
 
       Divider()
 
-      Toggle("Automatically inject after Dock restarts", isOn: Binding(
+      Toggle("Keep Dock renaming active", isOn: Binding(
         get: { preferences.automaticInjectionEnabled },
         set: {
           if $0 {
@@ -94,23 +94,36 @@ private struct InjectionSettingsView: View {
       ))
       .disabled(!isSupported)
 
-      Text("The app watches for a new Dock process and injects the bundled payload using an administrator prompt.")
+      Toggle("Launch Spaces Renamer at login", isOn: Binding(
+        get: { preferences.loginItemEnabled },
+        set: { preferences.setLoginItemEnabled($0) }
+      ))
+      .disabled(!isSupported)
+
+      if preferences.automaticInjectionEnabled && !preferences.loginItemEnabled {
+        Label(
+          "Dock renaming will not recover after restarting your Mac unless Spaces Renamer launches at login or you open it manually.",
+          systemImage: "exclamationmark.triangle.fill"
+        )
+        .font(.callout)
+        .foregroundStyle(.orange)
+      }
+
+      if let error = preferences.lastError {
+        Label(error, systemImage: "exclamationmark.triangle")
+          .font(.callout)
+          .foregroundStyle(.red)
+      }
+
+      Text("When Dock restarts, the app requests administrator approval before restoring the hook. Cancelling suppresses further automatic prompts for that Dock process; Inject Now retries manually.")
         .font(.callout)
         .foregroundStyle(.secondary)
 
-      HStack {
-        Button(injectionStateIsInjected ? "Re-inject Dock Hook" : "Inject Dock Hook") {
-          injection.injectNow()
-        }
-        .buttonStyle(.borderedProminent)
-
-        Button("Refresh") {
-          injection.refresh()
-        }
-
-        Spacer()
+      Button("Inject Now") {
+        injection.injectNow()
       }
-      .disabled(!isSupported || injection.operationInProgress)
+      .buttonStyle(.borderedProminent)
+      .disabled(!canInject || injection.operationInProgress)
 
       Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP. The AMFI boot argument is needed only as troubleshooting on systems where task_for_pid is still denied. Each injection triggers the standard macOS admin prompt.")
         .font(.caption)
@@ -125,10 +138,12 @@ private struct InjectionSettingsView: View {
     }
   }
 
-  private var injectionStateIsInjected: Bool {
+  private var canInject: Bool {
     switch injection.state {
-    case .loaded, .injected: return true
-    default: return false
+    case .ready, .prerequisitesMissing, .updateRequired, .authorizationCancelled, .error:
+      return true
+    case .unsupported, .injecting, .restartingDock, .loaded, .injected:
+      return false
     }
   }
 
@@ -136,6 +151,7 @@ private struct InjectionSettingsView: View {
     switch injection.state {
     case .injected: return .green
     case .error, .unsupported: return .red
+    case .prerequisitesMissing, .updateRequired, .authorizationCancelled: return .orange
     default: return .accentColor
     }
   }
