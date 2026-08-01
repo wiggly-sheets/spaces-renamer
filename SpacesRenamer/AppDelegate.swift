@@ -249,11 +249,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     configureAutomaticNameUpdates()
     configureHotkey()
     refreshSpaces()
-    DispatchQueue.main.async {
-      NativeAppManagement.promptToMoveIfNeeded()
-    }
     injection.start(preferences: preferences)
-    promptForInjectionConsentIfNeeded()
+    DispatchQueue.main.async { [weak self] in
+      self?.completeStartupInjectionFlow()
+    }
   }
 
   func application(_ application: NSApplication, open urls: [URL]) {
@@ -388,23 +387,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @MainActor
+  private func completeStartupInjectionFlow() {
+    // Moving launches a new copy from /Applications. Let that process resume
+    // onboarding so dialogs never overlap or refer to the temporary copy.
+    guard !NativeAppManagement.promptToMoveIfNeeded() else { return }
+
+    if preferences.injectionConsentGranted == nil {
+      promptForInjectionConsentIfNeeded()
+      return
+    }
+
+    offerLaunchAtLoginIfNeeded()
+    injection.refresh(injectIfEnabled: true)
+  }
+
+  @MainActor
   private func promptForInjectionConsentIfNeeded() {
     guard preferences.injectionConsentGranted == nil else { return }
     let alert = NSAlert()
-    alert.messageText = "Allow Spaces Renamer to inject its Dock hook?"
-    alert.informativeText = "Injection is required to rename Spaces in Mission Control. It uses the bundled injector and shows the standard macOS administrator prompt. You can change this later in Settings."
-    alert.addButton(withTitle: "Allow")
+    alert.messageText = "Enable Dock renaming?"
+    alert.informativeText = "Spaces Renamer injects its bundled hook into Dock to rename Spaces in Mission Control. macOS requests administrator approval for the first injection and again after each Dock or computer restart."
+    alert.addButton(withTitle: "Enable and Inject")
     alert.addButton(withTitle: "Not Now")
+
+    let launchAtLogin = NSButton(
+      checkboxWithTitle: "Launch Spaces Renamer at login (Recommended)",
+      target: nil,
+      action: nil
+    )
+    launchAtLogin.state = .on
+    launchAtLogin.frame.size = launchAtLogin.fittingSize
+    alert.accessoryView = launchAtLogin
+
     let granted = alert.runModal() == .alertFirstButtonReturn
     preferences.setInjectionConsent(granted)
+    UserDefaults.standard.set(true, forKey: "offeredLaunchAtLoginForInjection")
     if granted {
+      if launchAtLogin.state == .on {
+        preferences.setLoginItemEnabled(true)
+        showLaunchAtLoginErrorIfNeeded()
+      }
       injection.refresh()
       if let warning = injection.prerequisitesWarning {
         showInjectionSetupRequiredAlert(warning)
       } else {
-        injection.injectNow()
+        switch injection.state {
+        case .ready, .updateRequired, .authorizationCancelled, .error:
+          injection.injectNow()
+        default:
+          // A current payload is already loaded; do not inject it twice.
+          break
+        }
       }
     }
+  }
+
+  @MainActor
+  private func offerLaunchAtLoginIfNeeded(force: Bool = false) {
+    guard preferences.automaticInjectionEnabled, !preferences.loginItemEnabled else { return }
+    let defaultsKey = "offeredLaunchAtLoginForInjection"
+    guard force || !UserDefaults.standard.bool(forKey: defaultsKey) else { return }
+    UserDefaults.standard.set(true, forKey: defaultsKey)
+
+    let alert = NSAlert()
+    alert.messageText = "Keep Dock renaming available after restarting your Mac?"
+    alert.informativeText = "Launch Spaces Renamer at login so it can detect the new Dock process and request administrator approval to restore the hook."
+    alert.addButton(withTitle: "Enable Launch at Login")
+    alert.addButton(withTitle: "Not Now")
+    if alert.runModal() == .alertFirstButtonReturn {
+      preferences.setLoginItemEnabled(true)
+      showLaunchAtLoginErrorIfNeeded()
+    }
+  }
+
+  @MainActor
+  private func showLaunchAtLoginErrorIfNeeded() {
+    guard let error = preferences.lastError else { return }
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Launch at Login needs attention"
+    alert.informativeText = error
+    alert.addButton(withTitle: "OK")
+    alert.runModal()
   }
 
   @MainActor
@@ -412,7 +476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = "Injection setup required"
-    alert.informativeText = "\(warning) Spaces Renamer saved your consent and will inject automatically after setup and restart."
+    alert.informativeText = "\(warning) Spaces Renamer saved your choice. After completing setup and restarting your Mac, it will request administrator approval to inject."
     alert.addButton(withTitle: "Open Injection Settings")
     alert.addButton(withTitle: "Later")
     if alert.runModal() == .alertFirstButtonReturn {
@@ -511,11 +575,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       let stateItem = NSMenuItem(title: injection.state.title, action: nil, keyEquivalent: "")
       stateItem.state = .off // no rich state; we rely on detail text
       menu.addItem(stateItem)
-      let injectItem = NSMenuItem(title: "Inject Dock Hook", action: #selector(injectFromMenu(_:)), keyEquivalent: "")
+      let injectItem = NSMenuItem(title: "Inject Now", action: #selector(injectFromMenu(_:)), keyEquivalent: "")
       injectItem.representedObject = "inject"
       injectItem.isEnabled = !injection.operationInProgress
       menu.addItem(injectItem)
-      let reinjectItem = NSMenuItem(title: "Automatic Reinjection", action: #selector(toggleAutomaticInjection(_:)), keyEquivalent: "")
+      let reinjectItem = NSMenuItem(title: "Keep Dock Renaming Active", action: #selector(toggleAutomaticInjection(_:)), keyEquivalent: "")
       reinjectItem.state = preferences.automaticInjectionEnabled ? .on : .off
       reinjectItem.representedObject = "auto"
       menu.addItem(reinjectItem)
@@ -559,6 +623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       if now {
         // Enabling requires explicit consent
         preferences.setInjectionConsent(true)
+        offerLaunchAtLoginIfNeeded(force: true)
       } else {
         preferences.setAutomaticInjectionEnabled(false)
       }
@@ -670,7 +735,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     updateStatusItemContent()
     configureHotkey()
     refreshSpaces()
-    injection.refresh(injectIfEnabled: false)
   }
 
   // MARK: - Automatic Naming
@@ -721,7 +785,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     spaces.refresh(for: preferences.namingMode, showDuplicateApplications: preferences.showDuplicateApplications)
     preferences.applyGeneratedNames(from: spaces.snapshot)
     updateStatusItemContent()
-    injection.refresh()
   }
 
   @MainActor
