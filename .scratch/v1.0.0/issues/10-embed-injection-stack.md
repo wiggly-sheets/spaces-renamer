@@ -4,8 +4,8 @@
 
 **Blocked by:** 08 — Rename injection branch.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The build copies the injection script, injector executable, and payload into the app bundle
-- [ ] The privileged-helper files are cut from the branch
-- [ ] After `make app`, the bundle contains the stack at a stable, code-signed-safe location
+- [x] The build copies the injection script, injector executable, and payload into the app bundle
+- [x] The privileged-helper files are cut from the branch
+- [x] After `make app`, the bundle contains the stack at a stable, code-signed-safe location

@@ -4,8 +4,8 @@
 
 **Blocked by:** 11 — GUI-driven injection with admin-prompt elevation.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Menu bar exposes a re-inject action with the current health state
-- [ ] Inactive-injection state is surfaced (menu bar + Settings) while the app runs
-- [ ] Re-inject from either place restores injection
+- [x] Menu bar exposes a re-inject action with the current health state
+- [x] Inactive-injection state is surfaced (menu bar + Settings) while the app runs
+- [ ] Re-inject from either place restores injection (manual verification required)

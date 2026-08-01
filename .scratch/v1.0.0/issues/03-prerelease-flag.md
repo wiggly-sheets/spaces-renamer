@@ -4,7 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Stable tag (e.g. v1.0.0) creates a stable release
-- [ ] Prerelease tag (e.g. v1.0.0-rc.1) creates a prerelease
+- [x] Workflow omits `--prerelease` for stable tags
+- [x] Workflow passes `--prerelease` for tags containing `-`
+
+Live GitHub Release verification awaits stable and prerelease test tags.

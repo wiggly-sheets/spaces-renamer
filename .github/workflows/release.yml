@@ -57,7 +57,7 @@ jobs:
         run: brew install gh
 
       - name: Install create-dmg
-        run: brew install create-dmg
+        run: brew install create-dmg scdoc
 
       - name: Build (universal)
         run: make universal

@@ -4,9 +4,12 @@
 
 **Blocked by:** 04 — Release workflow auto-bumps the Homebrew cask.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] After a release, the job runs `brew tap` + `brew install --cask` successfully
-- [ ] The installed app version equals the released tag
-- [ ] Job failure does not gate or roll back the release
-- [ ] Intel verification documented as a manual pre-release step
+- [x] Job runs `brew tap` + `brew install --cask`
+- [x] Job asserts the installed app version equals the released tag
+- [x] Job is non-gating (`continue-on-error: true`)
+- [x] Intel verification is documented as a manual pre-release step
+
+The active workflow has no GitHub run yet; end-to-end tap installation remains
+a post-tag manual check.

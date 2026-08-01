@@ -4,9 +4,9 @@
 
 **Blocked by:** 10 — Embed injection stack in app bundle.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Inject button appears in Settings with the health state visible
+- [x] Inject button appears in Settings with the health state visible
 - [ ] Clicking Inject shows the system admin prompt and injects when approved
-- [ ] Health reflects the Dock handshake result (injected, Dock PID, payload version), not just the injector exit
-- [ ] Failed or declined injection leaves the app running and reports a clear state
+- [x] Health reflects the Dock handshake result (injected, Dock PID, payload version), not just the injector exit
+- [x] Failed or declined injection leaves the app running and reports a clear state

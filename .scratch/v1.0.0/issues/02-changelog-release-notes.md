@@ -4,7 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] A release whose tag matches a CHANGELOG section publishes that section as the release notes
-- [ ] A release with no matching section publishes a generic note without failing
+- [x] Script tests extract a matching CHANGELOG section
+- [x] Script tests fall back to generic notes without failing
+
+Live GitHub Release verification awaits the v1.0.0 test tag.

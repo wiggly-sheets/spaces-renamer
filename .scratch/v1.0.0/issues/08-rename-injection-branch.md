@@ -4,8 +4,8 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Local branch renamed and still points at its commit
-- [ ] Remote branch renamed; old remote branch gone
-- [ ] Local tracking updated to the new remote name
+- [x] Local branch renamed and still points at its commit
+- [x] Remote branch renamed; old remote branch gone
+- [x] Local tracking updated to the new remote name

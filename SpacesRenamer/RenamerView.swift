@@ -91,7 +91,7 @@ struct RenamerView: View {
   }
 }
 
-private struct SpaceNameCard: View {
+struct SpaceNameCard: View {
   @EnvironmentObject private var preferences: PreferencesStore
   let space: ManagedSpace
   @State private var draft = ""
