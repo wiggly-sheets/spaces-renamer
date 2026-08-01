@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.0 (2026-08-01)
+
 ### Added
 
 - [Ticket 10] Embed injection stack in app bundle: app bundle now carries full injection stack at build time (injection script, injector executable, payload) at a stable, code-signed-safe location
