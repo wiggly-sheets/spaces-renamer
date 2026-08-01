@@ -19,7 +19,7 @@ cask "spacesrenamer" do
   desc "Give macOS Spaces persistent names in Mission Control"
   homepage "https://github.com/wiggly-sheets/spaces-renamer"
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "SpacesRenamer.app"
 
