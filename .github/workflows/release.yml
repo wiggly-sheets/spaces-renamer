@@ -122,10 +122,14 @@ jobs:
           TAP_URL="https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git"
           rm -rf .tap-repo
           git clone --depth 1 "$TAP_URL" .tap-repo
-          cp homebrew/spacesrenamer.rb .tap-repo/Formula/spacesrenamer.rb
+          mkdir -p .tap-repo/Casks
+          cp homebrew/spacesrenamer.rb .tap-repo/Casks/spacesrenamer.rb
+          # Casks must live under Casks/. Remove the legacy Formula/ copy so
+          # Homebrew does not try to interpret the cask DSL as a formula.
+          git -C .tap-repo rm -f --ignore-unmatch Formula/spacesrenamer.rb
           git -C .tap-repo config user.name "github-actions[bot]"
           git -C .tap-repo config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C .tap-repo add Formula/spacesrenamer.rb
+          git -C .tap-repo add Casks/spacesrenamer.rb
           if ! git -C .tap-repo diff --cached --quiet; then
             git -C .tap-repo commit -m "chore(release): bump cask to v${VERSION}"
             DEFAULT_BRANCH="$(git -C .tap-repo symbolic-ref --short refs/remotes/origin/HEAD)"
