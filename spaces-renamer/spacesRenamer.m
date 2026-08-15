@@ -1,11 +1,3 @@
-//
-//  spaces-renamer.m
-//  spaces-renamer
-//
-//  Created by Alex Beals
-//  Copyright 2017 Alex Beals.
-//
-
 @import Foundation;
 @import CoreText;
 #import "ZKSwizzle.h"
@@ -78,13 +70,6 @@ static BOOL plistCacheInitialized = NO;
 }
 @end
 
-// Maximum online or active displays.
-//
-// SpacesRenamer uses the core graphics API to get online/active
-// displays by calling CGGetActiveDisplayList() and CGGetOnlineDisplayList(),
-// this definition is the count that will be used when calling those functions.
-//
-// If you have more than 12 monitors, this tweak can't help you with organization, good luck.
 #define kMaxDisplays 12
 
 int monitorIndex = 0;
@@ -107,8 +92,6 @@ static Class textLayerClass(void) {
   return layerClass;
 }
 
-// Refresh only the Space-label subtree whose associated layout values changed.
-// The old implementation walked almost the entire Mission Control layer tree.
 static void refreshFrames(CALayer *frame) {
   for (CALayer *layer in frame.sublayers) {
     [layer setFrame:layer.frame];
@@ -123,7 +106,6 @@ static void refreshChangedViews(NSArray<CALayer *> *views) {
   }
 }
 
-// Helper method
 static void assign(id a, void *key, id assigned) {
   objc_setAssociatedObject(a, key, assigned, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -149,8 +131,6 @@ static BOOL isDescendant(CALayer *candidate, CALayer *ancestor) {
   return NO;
 }
 
-// Gets the ECTextLayer child from a starting view
-// Good for when you don't care whether it's selected or not
 static CATextLayer *getTextLayer(CALayer *view) {
   CATextLayer *cached = objc_getAssociatedObject(view, &CACHED_TEXT_LAYER);
   if (cached != nil && isDescendant(cached, view)) {
@@ -178,8 +158,6 @@ static CATextLayer *getTextLayer(CALayer *view) {
   return layer;
 }
 
-// Given a view, sets the OFFSET variable for the text layer's parent, and siblings
-// if 'modify' is TRUE, it will add the OFFSET variables, otherwise it will overwrite it
 static BOOL setOffset(CALayer *view, double offset, bool modify) {
   CATextLayer *textLayer = getTextLayer(view);
   BOOL changed = NO;
@@ -216,9 +194,6 @@ static BOOL setOffset(CALayer *view, double offset, bool modify) {
   return changed;
 }
 
-// Finds the text layer, and sets the overridden string and width properties
-// to the text layer, its parent, and its siblings.
-// Additionally sets the type for determining centering behavior
 static BOOL overrideTextLayer(CALayer *view, NSString *newString, double width, NSString *type) {
   CATextLayer *textLayer = getTextLayer(view);
   BOOL changed = NO;
@@ -245,8 +220,6 @@ static BOOL overrideTextLayer(CALayer *view, NSString *newString, double width, 
   return changed;
 }
 
-// Gets the text area, and renders how large it would be with the new dimensions
-// Uses this for calculating how far they should be offset by
 static double getTextSizeHelper(CATextLayer *textLayer, NSString *string) {
   CFRange textRange = CFRangeMake(0, string.length);
   CFMutableAttributedStringRef attributedString = CFAttributedStringCreateMutable(kCFAllocatorDefault, string.length);
@@ -280,8 +253,7 @@ static double getTextSize(CALayer *view, NSString *string) {
       return cachedWidth.doubleValue;
     }
 
-    // Works around bug where CTFramesetterSuggestFrameSizeWithConstraints returns 0 for
-    // strings entirely composed of whitespace
+    // Avoid a CoreText zero-width result for whitespace-only strings.
     double width = getTextSizeHelper(textLayer, [string stringByAppendingString:@".."])
       - getTextSizeHelper(textLayer, @".");
     [widthCache setObject:@(width) forKey:cacheKey];
@@ -290,7 +262,6 @@ static double getTextSize(CALayer *view, NSString *string) {
   return -1;
 }
 
-// The highlighted space has 2 sublayers, while as a normal space only has 1
 static int getSelected(NSArray<CALayer *> *views) {
   for (NSUInteger index = 0; index < views.count; index++) {
     if (views[index].sublayers.count > 1) {
@@ -300,11 +271,6 @@ static int getSelected(NSArray<CALayer *> *views) {
   return -1;
 }
 
-/*
- 1. Load the customNamesPlist for named spaces
- 2. Load the listOfSpacesPlist to get the current list of spaces
- 3. Crosslist and return the custom names for each plist, and whether it's selected
- */
 static NSDate *modificationDate(NSString *path) {
   NSDictionary *attributes = [[NSFileManager defaultManager]
     attributesOfItemAtPath:path
@@ -391,8 +357,7 @@ static NSArray<Monitor *> *getNamesFromPlist(BOOL *cacheHit) {
 ZKSwizzleInterface(_SRCALayer, CALayer, CALayer);
 @implementation _SRCALayer
 - (void)setFrame:(CGRect)arg1 {
-  // Mission Control's concrete layer class can vary across macOS releases.
-  // Use the stable, cheap geometry/parent prefilter before the full display check.
+  // Use a stable geometry/parent prefilter because Mission Control layers vary by macOS release.
   if (arg1.origin.x == 0 && self.superlayer.class == [CALayer class]) {
     [self sre_applySpaceNamesForFrame:arg1];
   }
@@ -415,12 +380,10 @@ ZKSwizzleInterface(_SRCALayer, CALayer, CALayer);
 
     id possibleType = objc_getAssociatedObject(self, &TYPE);
     if (possibleType && [possibleType isEqualToString:@"expanded"]) {
-      // Always just center in the parent view
       arg1.origin.x = self.superlayer.frame.size.width / 2 - arg1.size.width / 2;
     } else {
       id possibleOffset = objc_getAssociatedObject(self.sublayers[textIndex], &OFFSET);
       id newX = objc_getAssociatedObject(self, &NEW_X);
-      // Only change the offsets once
       if (possibleOffset && [possibleOffset isKindOfClass:[NSNumber class]] && (newX == nil || [newX doubleValue] != arg1.origin.x)) {
         arg1.origin.x += [possibleOffset doubleValue];
 
@@ -493,7 +456,6 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
 
 @implementation CALayer (SpacesRenamerMissionControl)
 - (void)sre_applySpaceNamesForFrame:(CGRect)arg1 {
-  // Almost surely the desktop switcher
   if ([self sre_isDesktopSwitcherFrame:arg1]) {
     NSOperatingSystemVersion macOS = NSProcessInfo.processInfo.operatingSystemVersion;
     bool bigSurOrNewer = (macOS.majorVersion >= 11 || macOS.minorVersion >= 16);
@@ -513,14 +475,12 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
 
     int numMonitors = MAX((int)unexpandedViews.count, (int)expandedViews.count);
 
-    // Get which of the spaces in the current dock is selected
     int selected = getSelected((!unexpandedViews || !unexpandedViews.count) ? expandedViews : unexpandedViews);
 
     os_log_t log = performanceLog();
     os_signpost_id_t signpostID = os_signpost_id_generate(log);
     os_signpost_interval_begin(log, signpostID, "ApplyNames");
 
-    // Get all of the names
     BOOL cacheHit = NO;
     NSArray<Monitor *> *names = getNamesFromPlist(&cacheHit);
     if (names.count == 0) {
@@ -534,27 +494,22 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
       return;
     }
 
-    // Take a best guess at which monitor it is
     int matchingMonitor = -1;
     int matchingMonitorCount = 0;
     for (int i = 0; i < names.count; i++) {
       if (
-          names[i].spaces.count == numMonitors && // Same number of monitors
+          names[i].spaces.count == numMonitors &&
           selected >= 0 &&
           selected < names[i].spaces.count &&
-          [names[i].spaces[selected][@"selected"] boolValue] // Same index is selected
+          [names[i].spaces[selected][@"selected"] boolValue]
           ) {
         matchingMonitor = i;
         matchingMonitorCount += 1;
       }
     }
-    // If only one monitor, good to go
-    // If more than one monitor, but the sizes are different we can usually identify it
-    // Otherwise just go with the same cycling as it appears to have been last time it was good to go
     if (matchingMonitorCount == 1) {
       monitorIndex = matchingMonitor;
     } else {
-      // If the size of the bar only matches one of the monitors, then use that one
       NSString *displayUUID = [self sre_displayUUIDForFrame:arg1];
       if (displayUUID != nil) {
         for (int i = 0; i < names.count; i++) {
@@ -572,12 +527,9 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
     double unexpandedOffset = 0;
     for (int i = 0; i < names[monitorIndex].spaces.count; i++) {
       NSString *name = names[monitorIndex].spaces[i][@"name"];
-      // It's overridden
       if (name != nil && ![name isEqualToString:@""]) {
-        // Expanded
         if (i < expandedViews.count) {
           double textSize = getTextSize(expandedViews[i], name);
-          // Don't have the expanded view string overlap other ones
           if (overrideTextLayer(
             expandedViews[i],
             name,
@@ -588,7 +540,6 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
             [viewsNeedingRefresh addObject:expandedViews[i]];
           }
         }
-        // Unexpanded
         if (i < unexpandedViews.count) {
           double textSize = getTextSize(unexpandedViews[i], name);
           BOOL viewChanged = overrideTextLayer(
@@ -614,7 +565,6 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
       }
     }
 
-    // Make sure that it's centered in the bar when unexpanded
     for (int i = 0; i < names[monitorIndex].spaces.count; i++) {
       if (i < unexpandedViews.count) {
         if (setOffset(unexpandedViews[i], -unexpandedOffset/2, true)) {
@@ -628,7 +578,6 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
 
     monitorIndex += 1;
 
-    // Apply frame overrides only to label subtrees whose associated values changed.
     if (layoutChanged) {
       refreshChangedViews(viewsNeedingRefresh);
     }
@@ -649,48 +598,32 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
   }
 }
 
-// (40 height unexpanded, 146 expanded), if it's relevant later
 - (BOOL)sre_isDesktopSwitcherFrame:(CGRect)rect {
-  // Must start at origin
   if (rect.origin.x != 0) {
     return false;
   }
-  // Is a child of CALayer
   if (self.superlayer.class != [CALayer class]) {
     return false;
   }
 
-  // Get all of the monitors
   CGDirectDisplayID displayArray[kMaxDisplays];
   uint32_t displayCount;
   CGGetActiveDisplayList(kMaxDisplays, displayArray, &displayCount);
 
-  // Is the width of the full screen (one of them)
   for (int i = 0; i < displayCount; i++) {
     if (CGDisplayPixelsWide(displayArray[i]) == rect.size.width) {
       return true;
     }
   }
 
-  // Default to false
   return false;
 }
 
-// This checks the same monitors we already fetched in
-// probablyDesktopSwitcher, but this is only fallback code if both
-// screens have the same number of spaces and the same ones selected
-// which is unlikely. Therefore it's better to eat that rare double
-// cost than fetch the UUID when it's not needed.
 - (NSString *)sre_displayUUIDForFrame:(CGRect)rect {
-  // Get all of the monitors
   CGDirectDisplayID displayArray[kMaxDisplays];
   uint32_t displayCount;
   CGGetActiveDisplayList(kMaxDisplays, displayArray, &displayCount);
 
-  // This is only evaluated after probablyDesktopSwitcher is truthy
-  // so one of them is guaranteed to match. We only want ONE to match
-  // to feel confident using this signal though. So if we've already
-  // matched we just return nil
   CGDirectDisplayID matchingScreen = 0;
   for (int i = 0; i < displayCount; i++) {
     if (CGDisplayPixelsWide(displayArray[i]) == rect.size.width) {
@@ -701,7 +634,6 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
       }
     }
   }
-  // Go from the CGDirectDisplayID to the Display Identifier using private APIs
   if (matchingScreen == 0) {
     return nil;
   }
@@ -713,19 +645,5 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
   CFRelease(screenUuid);
   return [(__bridge NSString *)uuid autorelease];
 }
-
-// ===============
-// DEBUG FUNCTIONS
-// ===============
-//- (void)printLayer:(CALayer *)layer {
-//  [self recursivePrint:layer withPrefix:@""];
-//}
-//
-//- (void)recursivePrint:(CALayer *)layer withPrefix:(NSString *)prefix {
-//  NSLog(@"spaces-renamer: %@%@", prefix, layer);
-//  for (int i = 0; i < layer.sublayers.count; i++) {
-//    [self recursivePrint:layer.sublayers[i] withPrefix:[NSString stringWithFormat:@"  %@", prefix]];
-//  }
-//}
 
 @end

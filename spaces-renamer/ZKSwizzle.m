@@ -1,11 +1,3 @@
-//
-//  ZKSwizzle.m
-//  ZKSwizzle
-//
-//  Created by Alexander S Zielenski on 7/24/14.
-//  Copyright (c) 2014 Alexander S Zielenski. All rights reserved.
-//
-
 #import "ZKSwizzle.h"
 static NSMutableDictionary *classTable;
 
@@ -49,15 +41,6 @@ static Class classFromInfo(const char *info) {
   return objc_getClass(className);
 }
 
-// takes __PRETTY_FUNCTION__ for info which gives the name of the swizzle source class
-/*
- 
- We add the original implementation onto the swizzle class
- On ZKOrig, we use __PRETTY_FUNCTION__ to get the name of the swizzle class
- Then we get the implementation of that selector on the swizzle class
- Then we call it directly, passing in the correct selector and self
- 
- */
 ZKIMP ZKOriginalImplementation(id self, SEL sel, const char *info) {
   if (sel == NULL || self == NULL || info == NULL) {
     [NSException raise:@"Invalid Arguments" format:@"One of self: %@, self: %@, or info: %s is NULL", self, NSStringFromSelector(sel), info];
@@ -101,22 +84,12 @@ ZKIMP ZKSuperImplementation(id object, SEL sel, const char *info) {
     return NULL;
   }
   
-  // Two scenarios:
-  // 1.) The superclass was not swizzled, no problem
-  // 2.) The superclass was swizzled, problem
-  
-  // We want to return the swizzled class's superclass implementation
-  // If this is a subclass of such a class, we want two behaviors:
-  // a.) If this imp was also swizzled, no problem, return the superclass's swizzled imp
-  // b.) This imp was not swizzled, return the class that was originally swizzled's superclass's imp
   Class sourceClass = classFromInfo(info);
   if (sourceClass != NULL) {
     BOOL isClassMethod = class_isMetaClass(cls);
-    // This was called from a swizzled method, get the class it was swizzled with
     NSString *className = classTable[NSStringFromClass(sourceClass)];
     if (className != NULL) {
       cls = NSClassFromString(className);
-      // make sure we get a class method if we asked for one
       if (isClassMethod) {
         cls = object_getClass(cls);
       }
@@ -125,7 +98,6 @@ ZKIMP ZKSuperImplementation(id object, SEL sel, const char *info) {
   
   cls = class_getSuperclass(cls);
   
-  // This is a root class, it has no super class
   if (cls == NULL) {
     [NSException raise:@"Invalid Argument" format:@"Could not obtain superclass for the passed object"];
     return NULL;
@@ -166,7 +138,6 @@ BOOL _ZKSwizzle(Class src, Class dest) {
   }
   
   BOOL success = enumerateMethods(dest, src);
-  // The above method only gets instance methods. Do the same method for the metaclass of the class
   success     &= enumerateMethods(object_getClass(dest), object_getClass(src));
   
   [classTable setObject:destName forKey:NSStringFromClass(src)];
@@ -209,13 +180,11 @@ static BOOL enumerateMethods(Class destination, Class source) {
     SEL selector  = method_getName(method);
     NSString *methodName = NSStringFromSelector(selector);
     
-    // Don't do anything with the unconditional swizzle
     if (sel_isEqual(selector, @selector(_ZK_unconditionallySwizzle)) ||
         sel_isEqual(selector, @selector(_ZK_ignoreTypes))) {
       continue;
     }
     
-    // We only swizzle methods that are implemented
     if (class_respondsToSelector(destination, selector)) {
       Method originalMethod = class_getInstanceMethod(destination, selector);
       
@@ -223,12 +192,10 @@ static BOOL enumerateMethods(Class destination, Class source) {
       const char *newType = method_getTypeEncoding(method);
       if (strcmp(originalType, newType) != 0 && !ignoreTypes) {
         NSLog(@"ZKSwizzle: incompatible type encoding for %@. (expected %s, got %s)", methodName, originalType, newType);
-        // Incompatible type encoding
         success = NO;
         continue;
       }
       
-      // We are re-adding the destination selector because it could be on a superclass and not on the class itself. This method could fail
       class_addMethod(destination, selector, method_getImplementation(originalMethod), method_getTypeEncoding(originalMethod));
       
       SEL destSel = destinationSelectorForSelector(selector, source);
@@ -240,7 +207,6 @@ static BOOL enumerateMethods(Class destination, Class source) {
       
       method_exchangeImplementations(class_getInstanceMethod(destination, selector), class_getInstanceMethod(destination, destSel));
     } else {
-      // Add any extra methods to the class but don't swizzle them
       success &= class_addMethod(destination, selector, method_getImplementation(method), method_getTypeEncoding(method));
     }
   }
@@ -268,9 +234,6 @@ static BOOL enumerateMethods(Class destination, Class source) {
 #endif
 }
 
-// Options were to use a group class and traverse its subclasses
-// or to create a groups dictionary
-// This works because +load on NSObject is called before attribute((constructor))
 static NSMutableDictionary *groups = nil;
 void _$ZKRegisterInterface(Class cls, const char *groupName) {
   if (!groups)

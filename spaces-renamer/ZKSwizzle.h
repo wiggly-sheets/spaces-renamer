@@ -1,34 +1,10 @@
-//
-//  ZKSwizzle.h
-//  ZKSwizzle
-//
-//  Created by Alexander S Zielenski on 7/24/14.
-//  Copyright (c) 2014 Alexander S Zielenski. All rights reserved.
-//
-
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <sys/cdefs.h>
 
-// This is a class for streamlining swizzling. Simply create a new class of any name you want and
-// Example:
-/*
- @interface ZKHookClass : NSObject
- - (NSString *)description; // hooks -description on NSObject
- - (void)addedMethod; // all subclasses of NSObject now respond to -addedMethod
- @end
- 
- @implementation ZKHookClass
- ...
- @end
- 
- [ZKSwizzle swizzleClass:ZKClass(ZKHookClass) forClass:ZKClass(destination)];
- */
-
 #ifndef ZKSWIZZLE_DEFS
 #define ZKSWIZZLE_DEFS
 
-// CRAZY MACROS FOR DYNAMIC PROTOTYPE CREATION
 #define VA_NUM_ARGS(...) VA_NUM_ARGS_IMPL(0, ## __VA_ARGS__, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5 ,4 ,3 ,2, 1, 0)
 #define VA_NUM_ARGS_IMPL(_0, _1,_2,_3,_4,_5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20 ,N,...) N
 
@@ -58,10 +34,8 @@
 #define INVOKE(MACRO, NUMBER, ...) CAT(MACRO, NUMBER)(__VA_ARGS__)
 #define WRAP_LIST(...) INVOKE(WRAP, VA_NUM_ARGS(__VA_ARGS__), __VA_ARGS__)
 
-// Gets the a class with the name CLASS
 #define ZKClass(CLASS) objc_getClass(#CLASS)
 
-// returns the value of an instance variable.
 #if !__has_feature(objc_arc)
 #define ZKHookIvar(OBJECT, TYPE, NAME) (*(TYPE *)ZKIvarPointer(OBJECT, NAME))
 #else
@@ -72,10 +46,6 @@ _Pragma("clang diagnostic ignored \"-Wignored-attributes\"") \
 _Pragma("clang diagnostic pop")
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
-//// Core Macros (For fine-tuned Use)
-////////////////////////////////////////////////////////////////////////////////
-// returns the original implementation of the swizzled function or null or not found
 #define ZKOrig(TYPE, ...) ({\
   static ZKIMP implementation = NULL;\
   if (implementation == NULL) {\
@@ -84,7 +54,6 @@ _Pragma("clang diagnostic pop")
   ((TYPE (*)(id, SEL WRAP_LIST(__VA_ARGS__)))(implementation))(self, _cmd, ##__VA_ARGS__);\
 })
 
-// returns the original implementation of the superclass of the object swizzled
 #define ZKSuper(TYPE, ...) ({\
   static ZKIMP implementation = NULL;\
   if (implementation == NULL) {\
@@ -112,21 +81,11 @@ ZKSwizzle(CLASS_NAME, TARGET_CLASS);\
 }\
 @end
 
-// Bootstraps your swizzling class so that it requires no setup
-// outside of this macro call
-// If you override +load you must call ZKSwizzle(CLASS_NAME, TARGET_CLASS)
-// yourself, otherwise the swizzling would not take place
 #define ZKSwizzleInterface(CLASS_NAME, TARGET_CLASS, SUPERCLASS) \
 _ZKSwizzleInterfaceConditionally(CLASS_NAME, TARGET_CLASS, SUPERCLASS, ZK_UNGROUPED, YES)
 
-// Same as ZKSwizzleInterface, except
 #define ZKSwizzleInterfaceGroup(CLASS_NAME, TARGET_CLASS, SUPER_CLASS, GROUP) \
 _ZKSwizzleInterfaceConditionally(CLASS_NAME, TARGET_CLASS, SUPER_CLASS, GROUP, NO)
-
-////////////////////////////////////////////////////////////////////////////////
-//// Sugar Macros (For general use)
-////////////////////////////////////////////////////////////////////////////////
-// Inspired by logos. Credits to @mstg!
 
 #define __GEN_CLASS(TARGET, LINE) __ZK_## LINE## TARGET
 #define _GEN_CLASS(TARGET, LINE) __GEN_CLASS(TARGET, LINE)
@@ -152,22 +111,12 @@ ZKSwizzleInterface(GEN_CLASS(TARGET), TARGET, NSObject) @implementation GEN_CLAS
 
 __BEGIN_DECLS
 
-////////////////////////////////////////////////////////////////////////////////
-//// C Backing (Don't typically call directly)
-////////////////////////////////////////////////////////////////////////////////
-
-// Make sure to cast this before you use it
 typedef id (*ZKIMP)(id, SEL, ...);
 
-// returns a pointer to the instance variable "name" on the object
 void *ZKIvarPointer(id self, const char *name);
-// returns the original implementation of a method with selector "sel" of an object hooked by the methods below
 ZKIMP ZKOriginalImplementation(id self, SEL sel, const char *info);
-// returns the implementation of a method with selector "sel" of the superclass of object
 ZKIMP ZKSuperImplementation(id object, SEL sel, const char *info);
 
-// hooks all the implemented methods of source with destination
-// adds any methods that arent implemented on destination to destination that are implemented in source
 #define ZKSwizzle(src, dst) _ZKSwizzle(ZKClass(src), ZKClass(dst))
 BOOL _ZKSwizzle(Class src, Class dest);
 
@@ -175,7 +124,6 @@ BOOL _ZKSwizzle(Class src, Class dest);
 void _$ZKRegisterInterface(Class cls, const char *groupName);
 BOOL _ZKSwizzleGroup(const char *groupName);
 
-// Calls above method with the superclass of source for desination
 #define ZKSwizzleClass(src) _ZKSwizzleClass(ZKClass(src))
 BOOL _ZKSwizzleClass(Class cls);
 
