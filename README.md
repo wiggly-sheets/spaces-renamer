@@ -1,215 +1,223 @@
-# Spaces Renamer
+<div align="center">
 
-Spaces Renamer gives macOS Spaces persistent, useful names in Mission Control. The menu-bar app is built with SwiftUI; the injected Dock bundle retains the existing Objective-C runtime integration.
+  <img src="SpacesRenamer/Assets.xcassets/AppIcon.appiconset/app-icon-512.png" width="128" alt="Spaces Renamer app icon" />
+
+  <h1>Spaces Renamer</h1>
+
+  <p><b>Give every macOS Space a name that sticks.</b></p>
+
+  <p>
+    Name Spaces from a small native menu-bar app and see those names in Mission Control.<br />
+    Manual profiles, application-based labels, and yabai labels—without giving up your workflow.
+  </p>
+
+  <p>
+    <a href="https://github.com/wiggly-sheets/spaces-renamer/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/wiggly-sheets/spaces-renamer/release.yml?label=release" alt="Release workflow status" /></a>
+    <a href="https://github.com/wiggly-sheets/spaces-renamer/releases"><img src="https://img.shields.io/github/v/release/wiggly-sheets/spaces-renamer?label=latest" alt="Latest release" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/wiggly-sheets/spaces-renamer" alt="License" /></a>
+    <img src="https://img.shields.io/badge/macOS-13%2B-000000?logo=apple" alt="macOS 13 or later" />
+  </p>
+
+  <p>
+    <a href="https://github.com/wiggly-sheets/spaces-renamer/releases/latest"><b>Download</b></a>
+    &nbsp;·&nbsp;
+    <a href="#installation">Install guide</a>
+    &nbsp;·&nbsp;
+    <a href="#using-spaces-renamer">Usage</a>
+    &nbsp;·&nbsp;
+    <a href="#building-from-source">Build from source</a>
+    &nbsp;·&nbsp;
+    <a href="#security-and-compatibility">Security</a>
+  </p>
+
+</div>
+
+---
+
+macOS does not give Spaces persistent names. Spaces Renamer does: choose names yourself, organize them into profiles such as **Work** and **Home**, or generate labels from the apps in each Space or from yabai.
+
+It is a native macOS menu-bar app paired with a small bundle that teaches Mission Control to display the names. Profile and name changes are published immediately—there is no need to restart the app or Dock.
+
+> [!WARNING]
+> Showing names inside Mission Control requires injecting the Dock bundle. This currently needs Apple silicon and reduced macOS security protections. Read [Security and compatibility](#security-and-compatibility) before enabling it.
 
 ## Features
 
-- SwiftUI renamer popover and settings window
-- Work and Home profiles by default, with custom profiles
-- Instant profile switching from the menu bar
-- Configurable global hotkey (default: Control–Option–R)
-- Three naming modes: manual profiles, apps occupying each Space, or live yabai Space labels
-- Optional per-window app names, allowing repeated names such as `Safari · Safari`
-- Menu bar display choices: app icon, current Space name, or number and name
-- Native macOS launch-at-login support
-- Native prompt to move the app into `/Applications`
-- CLI tool (`sr`) for scripting and quick actions
-- scdoc-generated `sr(1)` manual page
-- Deeplink URL scheme (`spacesrenamer://`) for integration
-- Config file (`~/.config/spacesrenamer/config.toml`) for external profile management
-- Universal app binary (`arm64` + `x86_64`)
-- Universal Dock bundle (`arm64e` + `x86_64`)
-- Modern app icon and native template menu-bar icon
+- Native SwiftUI menu-bar popover and settings window
+- Persistent manual names, keyed by each macOS Space UUID
+- Built-in **Work** and **Home** profiles, plus your own profiles
+- Switch profiles instantly from the menu bar
+- Three naming modes: **Manual Profiles**, **Apps in Space**, and **yabai Space Labels**
+- Apps mode can show up to three real, user-facing apps in reading order; optionally retain duplicates such as `Safari · Safari`
+- Menu-bar display: icon, current Space name, or number and name
+- Configurable global hotkey (Control–Option–R by default)
+- Launch at login, a bundled `sr` command-line tool, deeplinks, and a live TOML config file
+- Universal app (`arm64` + `x86_64`) and Dock bundle (`arm64e` + `x86_64`)
 
-Manual names are stored per Space UUID. Switching profiles immediately republishes the active mapping to the legacy `spaces_renaming` plist key, so the existing Dock injector remains compatible without restarting Spaces Renamer.
+Generated naming modes require [yabai](https://github.com/koekeishiya/yabai). Apps mode deliberately filters out background, minimized, hidden, zero-sized, and placeholder windows so labels reflect the apps you are actually using.
 
-## Usage
-
-### Menu Bar
-
-- **Left-click** the menu bar item to open the rename popover.
-- **Right-click** the menu bar item to switch profiles, choose a naming mode, or open Settings.
-- Choose the icon, Space name, or number-and-name display under Settings → General.
-- Press **Control–Option–R** from any app to toggle the renamer. Change it under Settings → Hotkey.
-- Edit names in the popover. Return commits the current field; closing the popover saves edited manual names.
-
-### CLI Tool (`sr`)
-
-The `sr` CLI tool is bundled inside the app. On launch, Spaces Renamer symlinks it to `~/.local/bin/sr`.
-
-```bash
-sr status                  # Show current state (profile, naming mode, spaces)
-sr renamer                 # Open rename popover
-sr settings                # Open settings window
-sr profile switch <uuid>   # Activate profile by UUID
-sr profile list            # List profiles
-sr naming manual           # Set manual naming mode
-sr naming applications     # Set apps-in-space mode (requires yabai)
-sr naming yabaiLabels      # Set yabai labels mode (requires yabai)
-sr space <uuid> name <n>   # Set a manual name for a Space
-sr help                    # Print usage
-man sr                     # Read the full manual page
-```
-
-If `sr` is not found:
-
-```bash
-# Check ~/.local/bin is in PATH
-echo $PATH | grep .local/bin
-# Or symlink manually:
-ln -sf /Applications/SpacesRenamer.app/Contents/Resources/sr ~/.local/bin/sr
-```
-
-### Deeplinks (`spacesrenamer://`)
-
-The CLI wraps `open "spacesrenamer://..."`. Deeplinks work from any URL opener (browser, Shortcuts, etc.).
-
-| URL | Action |
-| --- | ------ |
-| `spacesrenamer://settings` | Open settings |
-| `spacesrenamer://renamer` | Toggle rename popover |
-| `spacesrenamer://profile/switch/<uuid>` | Switch active profile |
-| `spacesrenamer://profile/list` | Write status JSON |
-| `spacesrenamer://naming/manual` | Set manual mode |
-| `spacesrenamer://naming/applications` | Set apps mode |
-| `spacesrenamer://naming/yabaiLabels` | Set yabai labels mode |
-| `spacesrenamer://space/<uuid>/name?name=<encoded>` | Set space name |
-| `spacesrenamer://status` | Write status JSON to `/tmp/spaces-renamer-status-$UID.json` |
-
-### Config File
-
-Spaces Renamer watches `~/.config/spacesrenamer/config.toml` for external profile management. Changes are merged live — no restart needed.
-
-```toml
-[settings]
-# naming_mode = "manual"           # manual, applications, or yabaiLabels
-# show_menu_bar = true
-# menu_bar_display = "icon"        # icon, spaceName, or spaceNumberAndName
-# show_duplicate_apps = false
-# hotkey_key = 15                  # keyCode (15 = R)
-# hotkey_ctrl = true
-# hotkey_opt = true
-# hotkey_cmd = false
-# hotkey_shift = false
-# login_item = false
-# active_profile_id = ""
-
-[profiles.Work]
-# uuid = "00000000-0000-0000-0000-000000000000"
-# "space-uuid" = "Display Name"
-
-[profiles.Home]
-# uuid = "11111111-1111-1111-1111-111111111111"
-# "other-space-uuid" = "Another Name"
-```
-
-Profiles are matched by `uuid` field if present, falling back to section name.
+---
 
 ## Installation
 
-### Download from GitHub Releases
+### Download the app
 
-1. Download `SpacesRenamer-v{VERSION}.dmg` from the [Releases](https://github.com/wiggly-sheets/spaces-renamer/releases) page.
-2. Open the DMG and drag `SpacesRenamer.app` to the Applications folder.
-3. macOS may block unsigned apps. Remove the quarantine attribute:
+1. Download `SpacesRenamer-v{VERSION}.dmg` from [GitHub Releases](https://github.com/wiggly-sheets/spaces-renamer/releases/latest).
+2. Open the DMG and drag **SpacesRenamer.app** to **Applications**.
+3. Open the app. If macOS blocks the unsigned build, right-click it in Finder, choose **Open**, then confirm **Open**. Alternatively:
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/SpacesRenamer.app
    ```
 
-   Alternatively, right-click the app in Finder and select **Open** from the context menu, then click **Open** in the dialog. This registers an exception for future launches.
+The app runs on macOS 13 or later. Naming Spaces in Mission Control is optional; you can configure profiles and names before enabling Dock injection.
 
-### Build from Source
+### Enable Mission Control names
 
-Requires Xcode 15 or newer and macOS 13 or newer.
+On first launch, Spaces Renamer can guide you through enabling Dock renaming. The current injector needs:
+
+- Apple silicon
+- the `-arm64e_preview_abi` boot argument
+- SIP either disabled or configured with the supported narrower exceptions
+- administrator authorization to inject into the current Dock process
+
+The app checks these prerequisites but never changes security settings, modifies boot arguments, or restarts Dock itself. You can retry from **Settings → Injection → Inject Now** at any time.
+
+---
+
+## Using Spaces Renamer
+
+### Menu bar
+
+- **Left-click** the status item to rename Spaces.
+- **Right-click** it to switch profiles, choose a naming mode, or open Settings.
+- Choose icon, Space name, or number-and-name display in **Settings → General**.
+- Press **Control–Option–R** from anywhere to toggle the renamer; change this in **Settings → Hotkey**.
+- Press Return to commit the active name. Closing the popover also saves edited manual names.
+
+### Profiles and naming modes
+
+Manual names belong to profiles, so one set of Spaces can be **Work** during the week and **Home** after hours. Names are stored against stable Space UUIDs and the active profile is republished to Dock immediately when it changes.
+
+| Mode | What appears in Mission Control | Requires yabai |
+| --- | --- | --- |
+| Manual Profiles | The names you assign to each Space | No |
+| Apps in Space | Up to three app names, e.g. `Xcode · Safari` | Yes |
+| yabai Space Labels | Labels defined in yabai | Yes |
+
+### Command line (`sr`)
+
+Spaces Renamer installs a convenient `sr` symlink at `~/.local/bin/sr` on launch.
 
 ```bash
-make universal
+sr status                  # Profile, naming mode, and spaces
+sr renamer                 # Open the rename popover
+sr settings                # Open Settings
+sr profile list            # List profiles
+sr profile switch <uuid>   # Activate a profile
+sr naming manual           # Use manual names
+sr naming applications     # Name Spaces from apps (needs yabai)
+sr naming yabaiLabels      # Use yabai Space labels
+sr space <uuid> name <n>   # Set a manual name
+man sr                     # Read the full manual
 ```
 
-Build products:
+If the command is unavailable, make sure `~/.local/bin` is in your `PATH`, or create it yourself:
 
-```text
-.build/DerivedData/Build/Products/Release/SpacesRenamer.app
-.build/DerivedData/Build/Products/Release/spaces-renamer.bundle
+```bash
+ln -sf /Applications/SpacesRenamer.app/Contents/Resources/sr ~/.local/bin/sr
 ```
 
-`make universal` verifies the architectures with `lipo`. The build also uses
-`scdoc` to generate and bundle `sr(1)`:
+### Deeplinks and config file
+
+Use `spacesrenamer://` URLs from Shortcuts, browsers, or another launcher:
+
+| URL | Action |
+| --- | --- |
+| `spacesrenamer://settings` | Open Settings |
+| `spacesrenamer://renamer` | Toggle the rename popover |
+| `spacesrenamer://profile/switch/<uuid>` | Switch profile |
+| `spacesrenamer://naming/manual` | Use manual names |
+| `spacesrenamer://naming/applications` | Use Apps in Space mode |
+| `spacesrenamer://naming/yabaiLabels` | Use yabai labels mode |
+| `spacesrenamer://space/<uuid>/name?name=<encoded>` | Set a Space name |
+| `spacesrenamer://status` | Write status JSON to `/tmp/spaces-renamer-status-$UID.json` |
+
+For external profile management, Spaces Renamer watches `~/.config/spacesrenamer/config.toml` and applies changes live:
+
+```toml
+[settings]
+# naming_mode = "manual" # manual, applications, or yabaiLabels
+# menu_bar_display = "icon" # icon, spaceName, or spaceNumberAndName
+# show_duplicate_apps = false
+
+[profiles.Work]
+# uuid = "00000000-0000-0000-0000-000000000000"
+# "space-uuid" = "Code"
+```
+
+---
+
+## Building from source
+
+Requirements: macOS 13+, Xcode 15+, and [`scdoc`](https://git.sr.ht/~emersion/scdoc).
 
 ```bash
 brew install scdoc
-make man
+git clone https://github.com/wiggly-sheets/spaces-renamer.git
+cd spaces-renamer
+make universal
 ```
 
+`make universal` builds the app and Dock bundle, packages the current arm64e injection payload, and verifies all architecture slices.
+
 | Artifact | Architectures |
-| -------- | ------------- |
-| `SpacesRenamer.app` | `arm64` `x86_64` |
-| `spaces-renamer.bundle` | `arm64e` `x86_64` |
+| --- | --- |
+| `SpacesRenamer.app` | `arm64`, `x86_64` |
+| `spaces-renamer.bundle` | `arm64e`, `x86_64` |
 | `injection/lib/spaces-renamer.dylib` | `arm64e` |
 
-## Injection
+Useful targets:
 
-The repository's `injection/` folder contains the current `dylinject` workflow:
+```bash
+make app                # Build the menu-bar app
+make plugin             # Build the Dock bundle
+make package-injection  # Refresh the arm64e payload
+make dmg VERSION=1.0.0  # Create a distributable DMG
+make test               # Run repository contract tests
+```
+
+## Security and compatibility
+
+The Dock hook uses private macOS APIs and runs inside the Dock process. macOS updates can change the Mission Control layer hierarchy, so the injected component is deliberately defensive and falls back to normal Dock behavior when it cannot safely find the expected layers.
+
+To inject manually, the repository contains:
 
 ```bash
 ./injection/run.sh
 ```
 
-The supplied injector is currently `arm64e`-only. The Xcode Dock-bundle target also emits an `x86_64` slice, but Intel injection needs a compatible Intel injector.
+Do not run it casually. It needs the prerequisites described above and asks for administrator authorization. The exact setup commands, including SIP and NVRAM changes, are intentionally not automated because they weaken system protections. Building the project is safe: it does not inject, alter boot arguments, change SIP, or restart Dock.
 
-The injector workflow requires Apple silicon, the `-arm64e_preview_abi` boot argument, and either fully or partially disabled System Integrity Protection (SIP). These settings materially reduce macOS security. Review and understand the implications before changing them. Building the app does not run the injector, modify security settings, or restart Dock.
+For performance investigation, the bundle emits `os_signpost` data under subsystem `com.wiggly-sheets.spaces-renamer`, category `DockHook`. Attach Instruments to Dock and use Points of Interest or Time Profiler while opening Mission Control.
 
-On first launch, the app asks whether to enable Dock renaming and offers Launch at Login as a recommended option. Keeping Dock renaming active lets the app detect a new Dock process after a Dock or computer restart, but every injection still shows the standard macOS administrator-authorization prompt. Cancelling that prompt suppresses further automatic requests for the same Dock process; use Settings → Injection → Inject Now to retry.
+## Data and privacy
 
-Set the required boot argument with:
-
-```bash
-sudo nvram boot-args="-arm64e_preview_abi"
-```
-
-`amfi_get_out_of_my_way=1` is not universally required. It is an optional troubleshooting measure for systems where the injector still cannot obtain the Dock task port. If you need it, preserve the required argument by setting both values in one command: `sudo nvram boot-args="-arm64e_preview_abi amfi_get_out_of_my_way=1"`.
-
-From macOS Recovery, either disable SIP fully:
-
-```bash
-csrutil disable
-```
-
-or use the narrower configuration currently supported by this project:
-
-```bash
-csrutil enable --without fs --without debug --without nvram
-```
-
-Restart after changing these settings. Spaces Renamer checks both the required boot argument and SIP status; it never changes either setting for you.
-
-### Profiling the Dock hook
-
-The injected bundle emits `os_signpost` data under subsystem
-`com.wiggly-sheets.spaces-renamer` and category `DockHook`. Attach Instruments
-to Dock with the Points of Interest or Time Profiler instrument, then open and
-close Mission Control. `ApplyNames` intervals report cache hits, whether layout
-state changed, the number of Spaces processed, and how many label subtrees were
-refreshed. `ReloadPlists` events identify cache invalidations.
-
-## Data
-
-Modern settings:
+Preferences stay on your Mac:
 
 ```text
 ~/Library/Application Support/SpacesRenamer/preferences.json
 ```
 
-Dock compatibility files:
+For Dock compatibility, the app also publishes the active mapping to these legacy plist files:
 
 ```text
 ~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.plist
 ~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.currentspaces.plist
 ```
 
-Existing names are migrated into the Work profile on first launch.
+Existing names are migrated into the Work profile on first launch. The app does not need to upload your Space names or window labels to provide its core functionality.
 
-## Caveats
+## License
 
-Spaces Renamer relies on private macOS APIs and Dock injection. macOS updates may require changes to the injected bundle. Both dynamic naming modes require yabai. App-based naming includes standard, user-facing accessibility windows and intentionally omits background or placeholder records.
+Spaces Renamer is available under the [MIT License](LICENSE).
