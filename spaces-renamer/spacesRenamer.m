@@ -35,12 +35,15 @@ static void publishSpacesRenamerInjectionStatus(NSString *phase) {
   }
 }
 
+#ifndef SPACES_RENAMER_TESTING
 __attribute__((constructor))
+#endif
 static void reportSpacesRenamerInjection(void) {
   publishSpacesRenamerInjectionStatus(@"loaded");
 }
 
 static char OVERRIDDEN_STRING;
+static char ORIGINAL_STRING;
 static char OVERRIDDEN_WIDTH;
 static char OFFSET;
 static char NEW_X;
@@ -111,6 +114,9 @@ static void assign(id a, void *key, id assigned) {
 }
 
 static BOOL assignIfChanged(id object, void *key, id value) {
+  if (object == nil) {
+    return NO;
+  }
   id existing = objc_getAssociatedObject(object, key);
   if (existing == value || [existing isEqual:value]) {
     return NO;
@@ -194,15 +200,38 @@ static BOOL setOffset(CALayer *view, double offset, bool modify) {
   return changed;
 }
 
+static BOOL clearOffset(CALayer *view) {
+  CATextLayer *textLayer = getTextLayer(view);
+  if (textLayer == nil) {
+    return NO;
+  }
+
+  BOOL changed = NO;
+  CALayer *parent = textLayer.superlayer;
+  changed |= assignIfChanged(parent, &OFFSET, nil);
+  for (CALayer *sublayer in parent.sublayers) {
+    changed |= assignIfChanged(sublayer, &OFFSET, nil);
+  }
+  return changed;
+}
+
 static BOOL overrideTextLayer(CALayer *view, NSString *newString, double width, NSString *type) {
   CATextLayer *textLayer = getTextLayer(view);
   BOOL changed = NO;
 
   if (textLayer != nil) {
-    if (![textLayer.string isEqual:newString]) {
-      textLayer.string = newString;
-      changed = YES;
+    id originalString = objc_getAssociatedObject(textLayer, &ORIGINAL_STRING);
+    id currentString = textLayer.string;
+    if (
+      originalString == nil
+      && (
+        [currentString isKindOfClass:[NSString class]]
+        || [currentString isKindOfClass:[NSAttributedString class]]
+      )
+    ) {
+      assign(textLayer, &ORIGINAL_STRING, currentString);
     }
+
     CALayer *parent = textLayer.superlayer;
     changed |= assignIfChanged(parent, &OVERRIDDEN_STRING, newString);
     changed |= assignIfChanged(parent, &TYPE, type);
@@ -216,8 +245,61 @@ static BOOL overrideTextLayer(CALayer *view, NSString *newString, double width, 
         changed |= assignIfChanged(sublayer, &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
       }
     }
+    if (![textLayer.string isEqual:newString]) {
+      textLayer.string = newString;
+      changed = YES;
+    }
   }
   return changed;
+}
+
+static BOOL clearTextLayerOverride(CALayer *view) {
+  CATextLayer *textLayer = getTextLayer(view);
+  if (textLayer == nil) {
+    return NO;
+  }
+
+  CALayer *parent = textLayer.superlayer;
+  if (
+    objc_getAssociatedObject(textLayer, &OVERRIDDEN_STRING) == nil
+    && objc_getAssociatedObject(textLayer, &ORIGINAL_STRING) == nil
+  ) {
+    return NO;
+  }
+
+  BOOL changed = NO;
+  changed |= assignIfChanged(parent, &OVERRIDDEN_STRING, nil);
+  changed |= assignIfChanged(parent, &OVERRIDDEN_WIDTH, nil);
+  changed |= assignIfChanged(parent, &TYPE, nil);
+  for (CALayer *sublayer in parent.sublayers) {
+    changed |= assignIfChanged(sublayer, &OVERRIDDEN_STRING, nil);
+    changed |= assignIfChanged(sublayer, &OVERRIDDEN_WIDTH, nil);
+    changed |= assignIfChanged(sublayer, &TYPE, nil);
+  }
+
+  id originalString = objc_getAssociatedObject(textLayer, &ORIGINAL_STRING);
+  if (originalString != nil && ![textLayer.string isEqual:originalString]) {
+    textLayer.string = originalString;
+    changed = YES;
+  }
+  assign(textLayer, &ORIGINAL_STRING, nil);
+  return changed;
+}
+
+static void enforceTextLayerOverride(CATextLayer *textLayer) {
+  id overridden = objc_getAssociatedObject(textLayer, &OVERRIDDEN_STRING);
+  if (![overridden isKindOfClass:[NSString class]] || [textLayer.string isEqual:overridden]) {
+    return;
+  }
+
+  id currentString = textLayer.string;
+  if (
+    [currentString isKindOfClass:[NSString class]]
+    || [currentString isKindOfClass:[NSAttributedString class]]
+  ) {
+    assign(textLayer, &ORIGINAL_STRING, currentString);
+  }
+  textLayer.string = overridden;
 }
 
 static double getTextSizeHelper(CATextLayer *textLayer, NSString *string) {
@@ -283,6 +365,86 @@ static BOOL nullableObjectsEqual(id left, id right) {
   return left == right || (left != nil && [left isEqual:right]);
 }
 
+static NSArray<Monitor *> *monitorNamesFromPropertyLists(
+  id namesPropertyList,
+  id spacesPropertyList
+) {
+  if (
+    ![namesPropertyList isKindOfClass:[NSDictionary class]]
+    || ![spacesPropertyList isKindOfClass:[NSDictionary class]]
+  ) {
+    return @[];
+  }
+
+  id names = [namesPropertyList objectForKey:@"spaces_renaming"];
+  id monitors = [spacesPropertyList objectForKey:@"Monitors"];
+  if (
+    ![names isKindOfClass:[NSDictionary class]]
+    || ![monitors isKindOfClass:[NSArray class]]
+  ) {
+    return @[];
+  }
+
+  NSMutableArray<Monitor *> *parsedMonitors = [NSMutableArray
+    arrayWithCapacity:[monitors count]
+  ];
+  for (id monitorValue in monitors) {
+    if (![monitorValue isKindOfClass:[NSDictionary class]]) {
+      return @[];
+    }
+    NSDictionary *monitorDictionary = monitorValue;
+
+    id spaces = [monitorDictionary objectForKey:@"Spaces"];
+    if (![spaces isKindOfClass:[NSArray class]]) {
+      return @[];
+    }
+
+    id currentSpace = [monitorDictionary objectForKey:@"Current Space"];
+    if (currentSpace != nil && ![currentSpace isKindOfClass:[NSDictionary class]]) {
+      return @[];
+    }
+    id selected = [currentSpace objectForKey:@"uuid"];
+    if (selected != nil && ![selected isKindOfClass:[NSString class]]) {
+      return @[];
+    }
+
+    id displayUUID = [monitorDictionary objectForKey:@"Display Identifier"];
+    if (displayUUID != nil && ![displayUUID isKindOfClass:[NSString class]]) {
+      return @[];
+    }
+
+    NSMutableArray<NSMutableDictionary *> *spaceNames = [NSMutableArray
+      arrayWithCapacity:[spaces count]
+    ];
+    for (id spaceValue in spaces) {
+      if (![spaceValue isKindOfClass:[NSDictionary class]]) {
+        return @[];
+      }
+      id uuid = [spaceValue objectForKey:@"uuid"];
+      if (![uuid isKindOfClass:[NSString class]]) {
+        return @[];
+      }
+
+      id name = [names objectForKey:uuid];
+      if (name != nil && ![name isKindOfClass:[NSString class]]) {
+        return @[];
+      }
+      NSMutableDictionary *parsedSpace = [@{
+        @"selected": @([uuid isEqualToString:selected]),
+        @"name": name ?: @""
+      } mutableCopy];
+      [spaceNames addObject:parsedSpace];
+      [parsedSpace release];
+    }
+
+    Monitor *monitor = [[[Monitor alloc] init] autorelease];
+    monitor.displayUUID = displayUUID;
+    monitor.spaces = spaceNames;
+    [parsedMonitors addObject:monitor];
+  }
+  return parsedMonitors;
+}
+
 static NSArray<Monitor *> *getNamesFromPlist(BOOL *cacheHit) {
   NSDate *namesModificationDate = modificationDate(customNamesPlist);
   NSDate *spacesModificationDate = modificationDate(listOfSpacesPlist);
@@ -306,37 +468,12 @@ static NSArray<Monitor *> *getNamesFromPlist(BOOL *cacheHit) {
     "ReloadPlists"
   );
 
-  NSDictionary *dictOfNames = [NSDictionary dictionaryWithContentsOfFile:customNamesPlist];
-  NSDictionary *spacesCustom = [NSDictionary dictionaryWithContentsOfFile:listOfSpacesPlist];
-  NSDictionary *dict = [dictOfNames valueForKey:@"spaces_renaming"];
-  NSArray *listOfMonitors = [spacesCustom valueForKeyPath:@"Monitors"];
-
-  NSMutableArray<Monitor *> *newNames = [NSMutableArray
-    arrayWithCapacity:listOfMonitors.count
-  ];
-
-  for (int i = 0; i < listOfMonitors.count; i++) {
-    NSArray *listOfSpaces = [listOfMonitors[i] valueForKeyPath:@"Spaces"];
-    NSString *selected = [listOfMonitors[i] valueForKeyPath:@"Current Space.uuid"];
-    Monitor *monitor = [[[Monitor alloc] init] autorelease];
-    monitor.displayUUID = [listOfMonitors[i] valueForKeyPath:@"Display Identifier"];
-
-    NSMutableArray *spaceNames = [NSMutableArray arrayWithCapacity:listOfSpaces.count];
-    for (int j = 0; j < listOfSpaces.count; j++) {
-      NSString *uuid = listOfSpaces[j][@"uuid"];
-      id name = [dict objectForKey:uuid];
-      NSMutableDictionary *screenDict = [NSMutableDictionary dictionary];
-      screenDict[@"selected"] = @([uuid isEqualToString:selected]);
-      if (name != nil) {
-        screenDict[@"name"] = name;
-      } else {
-        screenDict[@"name"] = @"";
-      }
-      [spaceNames addObject:screenDict];
-    }
-    monitor.spaces = spaceNames;
-    [newNames addObject:monitor];
-  }
+  id dictOfNames = [NSDictionary dictionaryWithContentsOfFile:customNamesPlist];
+  id spacesCustom = [NSDictionary dictionaryWithContentsOfFile:listOfSpacesPlist];
+  NSArray<Monitor *> *newNames = monitorNamesFromPropertyLists(
+    dictOfNames,
+    spacesCustom
+  );
 
   [cachedMonitors release];
   cachedMonitors = [newNames copy];
@@ -436,12 +573,10 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
 
 -(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
   if (context != &OBSERVING_PROPERTIES_CHANGED) {
+    ZKOrig(void, keyPath, object, change, context);
     return;
   }
-  id overridden = objc_getAssociatedObject(self, &OVERRIDDEN_STRING);
-  if ([overridden isKindOfClass:[NSString class]] && ![self.string isEqualToString:overridden]) {
-    self.string = overridden;
-  }
+  enforceTextLayerOverride(self);
 }
 
 - (id)propertiesChanged {
@@ -484,12 +619,33 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
     BOOL cacheHit = NO;
     NSArray<Monitor *> *names = getNamesFromPlist(&cacheHit);
     if (names.count == 0) {
+      BOOL layoutChanged = NO;
+      NSMutableArray<CALayer *> *viewsNeedingRefresh = [NSMutableArray array];
+      for (CALayer *view in expandedViews) {
+        if (clearTextLayerOverride(view)) {
+          layoutChanged = YES;
+          [viewsNeedingRefresh addObject:view];
+        }
+      }
+      for (CALayer *view in unexpandedViews) {
+        BOOL viewChanged = clearTextLayerOverride(view);
+        viewChanged |= clearOffset(view);
+        if (viewChanged) {
+          layoutChanged = YES;
+          [viewsNeedingRefresh addObject:view];
+        }
+      }
+      if (layoutChanged) {
+        refreshChangedViews(viewsNeedingRefresh);
+      }
       os_signpost_interval_end(
         log,
         signpostID,
         "ApplyNames",
-        "cache_hit=%d changed=0 spaces=0",
-        cacheHit
+        "cache_hit=%d changed=%d spaces=0 refreshed_views=%lu",
+        cacheHit,
+        layoutChanged,
+        (unsigned long)viewsNeedingRefresh.count
       );
       return;
     }
@@ -556,8 +712,16 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
           unexpandedOffset += (textSize - getTextLayer(unexpandedViews[i]).bounds.size.width);
         }
       } else {
+        if (i < expandedViews.count) {
+          if (clearTextLayerOverride(expandedViews[i])) {
+            layoutChanged = YES;
+            [viewsNeedingRefresh addObject:expandedViews[i]];
+          }
+        }
         if (i < unexpandedViews.count) {
-          if (setOffset(unexpandedViews[i], unexpandedOffset, false)) {
+          BOOL viewChanged = clearTextLayerOverride(unexpandedViews[i]);
+          viewChanged |= setOffset(unexpandedViews[i], unexpandedOffset, false);
+          if (viewChanged) {
             layoutChanged = YES;
             [viewsNeedingRefresh addObject:unexpandedViews[i]];
           }
