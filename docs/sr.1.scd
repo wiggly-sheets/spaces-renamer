@@ -24,9 +24,10 @@ sr - control Spaces Renamer from the command line
 
 # DESCRIPTION
 
-*sr* opens Spaces Renamer deeplinks and reads status written by the running
-Spaces Renamer app. The app installs symlinks for the command and this manual
-page under _$HOME/.local_ when it launches.
+*sr* opens Spaces Renamer deeplinks and reads a request-specific status reply
+written by the running Spaces Renamer app. It waits for that reply instead of
+reusing an older status file. The app installs symlinks for the command and
+this manual page under _$HOME/.local_ when it launches.
 
 # COMMANDS
 
@@ -63,8 +64,12 @@ _$HOME/.local/bin/sr_
 _$HOME/.local/share/man/man1/sr.1_
 	Symlink to this manual page in SpacesRenamer.app.
 
+_/tmp/spaces-renamer-cli-$UID.XXXXXX/response.json_
+	Short-lived, request-specific status reply. *sr* removes it after reading.
+
 _/tmp/spaces-renamer-status-$UID.json_
-	Status exchanged with the running app.
+	Legacy reply used only by status deeplinks that do not request a private
+	reply file.
 
 # ENVIRONMENT
 

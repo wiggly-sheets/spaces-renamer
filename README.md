@@ -141,7 +141,7 @@ Use `spacesrenamer://` URLs from Shortcuts, browsers, or another launcher:
 | `spacesrenamer://naming/applications` | Use Apps in Space mode |
 | `spacesrenamer://naming/yabaiLabels` | Use yabai labels mode |
 | `spacesrenamer://space/<uuid>/name?name=<encoded>` | Set a Space name |
-| `spacesrenamer://status` | Write status JSON to `/tmp/spaces-renamer-status-$UID.json` |
+| `spacesrenamer://status` | Write status JSON to the legacy `/tmp/spaces-renamer-status-$UID.json` path; `sr` uses a private per-request reply file |
 
 For external profile management, Spaces Renamer watches `~/.config/spacesrenamer/config.toml` and applies changes live:
 
