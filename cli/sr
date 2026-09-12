@@ -5,26 +5,65 @@
 set -euo pipefail
 
 CMD="${1:-help}"
-STATUS_FILE="/tmp/spaces-renamer-status-${UID}.json"
+RESPONSE_DIR=""
+RESPONSE_FILE=""
+
+cleanup_response() {
+  if [[ -n "$RESPONSE_FILE" ]]; then
+    rm -f -- "$RESPONSE_FILE"
+  fi
+  if [[ -n "$RESPONSE_DIR" ]]; then
+    rmdir -- "$RESPONSE_DIR" 2>/dev/null || true
+  fi
+}
+
+trap cleanup_response EXIT
+
+url_encode() {
+  local input="$1" output="" char hex byte i LC_ALL=C
+  for ((i = 0; i < ${#input}; i++)); do
+    char="${input:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) output+="$char" ;;
+      *)
+        printf -v byte '%d' "'$char"
+        if ((byte < 0)); then
+          byte=$((byte + 256))
+        fi
+        printf -v hex '%02X' "$byte"
+        output+="%$hex"
+        ;;
+    esac
+  done
+  printf '%s' "$output"
+}
 
 open_url() {
   open "spacesrenamer://$1"
 }
 
+request_json() {
+  local endpoint="$1" attempts
+  RESPONSE_DIR="$(mktemp -d "/tmp/spaces-renamer-cli-${UID}.XXXXXX")"
+  RESPONSE_FILE="$RESPONSE_DIR/response.json"
+
+  open_url "$endpoint?reply=$(url_encode "$RESPONSE_FILE")"
+
+  for ((attempts = 0; attempts < 100; attempts++)); do
+    if [[ -s "$RESPONSE_FILE" ]]; then
+      cat "$RESPONSE_FILE"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  echo "Spaces Renamer did not return a response. Is the app able to open?" >&2
+  return 1
+}
+
 case "$CMD" in
   status)
-    open_url "status"
-    sleep 0.15
-    if [[ -f "$STATUS_FILE" ]]; then
-      if command -v python3 &>/dev/null; then
-        python3 -m json.tool "$STATUS_FILE" 2>/dev/null || cat "$STATUS_FILE"
-      else
-        cat "$STATUS_FILE"
-      fi
-    else
-      echo "Status file not found. Is Spaces Renamer running?" >&2
-      exit 1
-    fi
+    request_json "status"
     ;;
   renamer)
     open_url "renamer"
@@ -39,15 +78,7 @@ case "$CMD" in
         open_url "profile/switch/${3:-}"
         ;;
       list)
-        open_url "profile/list"
-        sleep 0.15
-        if [[ -f "$STATUS_FILE" ]]; then
-          if command -v python3 &>/dev/null; then
-            python3 -m json.tool "$STATUS_FILE" 2>/dev/null || cat "$STATUS_FILE"
-          else
-            cat "$STATUS_FILE"
-          fi
-        fi
+        request_json "profile/list"
         ;;
       *)
         echo "Usage: sr profile switch <uuid> | sr profile list" >&2
@@ -78,7 +109,7 @@ case "$CMD" in
           echo "Usage: sr space <uuid> name <name>" >&2
           exit 1
         fi
-        ENCODED=$(SR_NAME="$NAME" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['SR_NAME']))")
+        ENCODED="$(url_encode "$NAME")"
         open_url "space/${SPACE_UUID}/name?name=${ENCODED}"
         ;;
       *)

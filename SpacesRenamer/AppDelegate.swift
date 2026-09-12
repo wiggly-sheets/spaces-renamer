@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Darwin
 import ServiceManagement
 import SwiftUI
 
@@ -104,7 +105,7 @@ private final class YabaiEventMonitor {
   }
 
   private func registerSignals() {
-    guard Self.yabaiPath != nil else { return }
+    guard YabaiClient.findExecutableURL() != nil else { return }
     removeSignals()
     for (index, event) in Self.events.enumerated() {
       // `index` comes only from the fixed event allowlist above.
@@ -119,7 +120,7 @@ private final class YabaiEventMonitor {
   }
 
   private func removeSignals() {
-    guard Self.yabaiPath != nil else { return }
+    guard YabaiClient.findExecutableURL() != nil else { return }
     for event in Self.events {
       _ = runYabai(["-m", "signal", "--remove", Self.label(for: event)])
     }
@@ -136,30 +137,12 @@ private final class YabaiEventMonitor {
   }
 
   private func runYabai(_ arguments: [String]) -> Bool {
-    guard let path = Self.yabaiPath else { return false }
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: path)
-    process.arguments = arguments
-    process.standardOutput = Pipe()
-    process.standardError = Pipe()
-    do {
-      try process.run()
-      process.waitUntilExit()
-      return process.terminationStatus == 0
-    } catch {
-      return false
-    }
+    YabaiClient.run(arguments, captureOutput: false) != nil
   }
 
   private static func label(for event: String) -> String {
     "spaces_renamer_autoname_\(event)"
   }
-
-  private static let yabaiPath: String? = {
-    ["/opt/homebrew/bin/yabai", "/usr/local/bin/yabai"].first {
-      FileManager.default.isExecutableFile(atPath: $0)
-    }
-  }()
 
   deinit {
     if !stopped {
@@ -259,12 +242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     for url in urls { handleDeeplink(url) }
   }
 
-  func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
-    if hasVisibleWindows {
-      settingsWindow?.close()
-    } else {
-      openSettings()
-    }
+  func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
+    openSettings()
     return true
   }
 
@@ -285,24 +264,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences.activateProfile(id)
       }
     case (2, "profile", "list", _):
-      writeStatusJSON()
+      writeStatusJSON(for: url)
     case (2, "naming", let mode, _):
       if let modeStr = mode, let namingMode = NamingMode(rawValue: modeStr) {
         preferences.setNamingMode(namingMode)
       }
     case (3, "space", let uuid, "name"):
-      if let name = url.queryParameters?["name"]?.removingPercentEncoding,
+      if let name = url.firstQueryValue(named: "name"),
          let uuidStr = uuid {
         preferences.setName(name, for: uuidStr)
       }
     case (1, "status", _, _):
-      writeStatusJSON()
+      writeStatusJSON(for: url)
     default:
       break
     }
   }
 
-  private func writeStatusJSON() {
+  private func writeStatusJSON(for requestURL: URL) {
     let dict: [String: Any] = [
       "activeProfile": preferences.activeProfile.name,
       "activeProfileID": preferences.activeProfileID.uuidString,
@@ -312,14 +291,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       "profiles": preferences.profiles.map { ["id": $0.id.uuidString, "name": $0.name, "spaceCount": $0.names.count] },
       "spaces": spaces.snapshot.flatMap(\.spaces).map { ["id": $0.id, "index": $0.index, "name": preferences.name(for: $0.id)] },
     ]
-    let uid = getuid()
-    let url = URL(fileURLWithPath: "/tmp/spaces-renamer-status-\(uid).json")
+    guard let destination = statusReplyDestination(for: requestURL) else { return }
     do {
       let data = try JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
-      try data.write(to: url, options: .atomic)
+      let options: Data.WritingOptions = destination.isRequestScoped
+        ? [.atomic, .withoutOverwriting]
+        : .atomic
+      try data.write(to: destination.url, options: options)
     } catch {
       NSLog("Failed to write status JSON: \(error.localizedDescription)")
     }
+  }
+
+  private struct StatusReplyDestination {
+    let url: URL
+    let isRequestScoped: Bool
+  }
+
+  private func statusReplyDestination(for requestURL: URL) -> StatusReplyDestination? {
+    let replyValues = requestURL.queryValues(named: "reply")
+    guard !replyValues.isEmpty else {
+      return StatusReplyDestination(
+        url: URL(fileURLWithPath: "/tmp/spaces-renamer-status-\(getuid()).json"),
+        isRequestScoped: false
+      )
+    }
+    guard replyValues.count == 1,
+          let destination = CLIReplyPathPolicy.validatedURL(path: replyValues[0]) else {
+      NSLog("Rejected invalid or ambiguous CLI reply path.")
+      return nil
+    }
+    return StatusReplyDestination(url: destination, isRequestScoped: true)
   }
 
   // MARK: - CLI Symlink
@@ -328,10 +330,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let fileManager = FileManager.default
     let symlinkDir = URL(fileURLWithPath: "\(NSHomeDirectory())/.local/bin")
     let symlinkPath = symlinkDir.appendingPathComponent("sr")
-    let resourcePath: String
+    let resourceURL: URL
 
-    if let path = Bundle.main.url(forResource: "sr", withExtension: nil)?.path {
-      resourcePath = path
+    if let url = Bundle.main.url(forResource: "sr", withExtension: nil) {
+      resourceURL = url
     } else {
       NSLog("CLI resource 'sr' not found in bundle; skipping symlink.")
       return
@@ -346,24 +348,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return
       }
     }
-
-    if fileManager.fileExists(atPath: symlinkPath.path) {
-      if symlinkPath.resolvingSymlinksInPath().path == resourcePath {
-        return
-      }
-      do {
-        try fileManager.removeItem(at: symlinkPath)
-      } catch {
-        NSLog("Could not remove stale symlink: \(error.localizedDescription)")
-      }
+    guard isDir.boolValue else {
+      NSLog("Could not install CLI tool: \(symlinkDir.path) is not a directory.")
+      return
     }
 
-    do {
-      try fileManager.createSymbolicLink(at: symlinkPath, withDestinationURL: URL(fileURLWithPath: resourcePath))
-      NSLog("Symlinked \(symlinkPath.path) → \(resourcePath)")
-    } catch {
-      NSLog("Could not symlink CLI tool: \(error.localizedDescription)")
-    }
+    installManagedSymlink(
+      at: symlinkPath,
+      to: resourceURL,
+      resourcePathWithinBundle: "sr",
+      description: "CLI tool"
+    )
   }
 
   private func installManPageSymlink() {
@@ -377,12 +372,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let destination = directory.appendingPathComponent("sr.1")
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      if FileManager.default.fileExists(atPath: destination.path) {
-        try FileManager.default.removeItem(at: destination)
-      }
-      try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: resource)
     } catch {
-      NSLog("Could not install sr(1) man page: \(error.localizedDescription)")
+      NSLog("Could not create \(directory.path): \(error.localizedDescription)")
+      return
+    }
+    installManagedSymlink(
+      at: destination,
+      to: resource,
+      resourcePathWithinBundle: "man/man1/sr.1",
+      description: "sr(1) man page"
+    )
+  }
+
+  private func installManagedSymlink(
+    at destination: URL,
+    to resource: URL,
+    resourcePathWithinBundle: String,
+    description: String
+  ) {
+    switch ManagedSymlinkInstaller.install(
+      at: destination,
+      to: resource,
+      resourcePathWithinBundle: resourcePathWithinBundle
+    ) {
+    case .unchanged:
+      break
+    case .installed, .replaced:
+      NSLog("Symlinked \(destination.path) → \(resource.path)")
+    case .preserved:
+      NSLog("Preserving existing \(destination.path); it is not a Spaces Renamer symlink.")
+    case .failed(let message):
+      NSLog("Could not install \(description): \(message)")
     }
   }
 
@@ -583,6 +603,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       reinjectItem.state = preferences.automaticInjectionEnabled ? .on : .off
       reinjectItem.representedObject = "auto"
       menu.addItem(reinjectItem)
+      menu.addItem(.separator())
+      let settingsItem = NSMenuItem(
+        title: "Settings…",
+        action: #selector(openSettings),
+        keyEquivalent: ","
+      )
+      settingsItem.target = self
+      menu.addItem(settingsItem)
+      let quitItem = NSMenuItem(
+        title: "Quit Spaces Renamer",
+        action: #selector(quitApp),
+        keyEquivalent: "q"
+      )
+      quitItem.target = self
+      menu.addItem(quitItem)
 
       statusItem.menu = menu
       statusItem.button?.performClick(nil)
@@ -782,9 +817,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @MainActor
   private func refreshSpaces() {
-    spaces.refresh(for: preferences.namingMode, showDuplicateApplications: preferences.showDuplicateApplications)
-    preferences.applyGeneratedNames(from: spaces.snapshot)
-    updateStatusItemContent()
+    spaces.refresh(
+      for: preferences.namingMode,
+      showDuplicateApplications: preferences.showDuplicateApplications
+    ) { [weak self] in
+      guard let self else { return }
+      self.preferences.applyGeneratedNames(from: self.spaces.snapshot)
+      self.updateStatusItemContent()
+    }
   }
 
   @MainActor
@@ -810,15 +850,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 private extension Array {
   subscript(safe index: Int) -> Element? {
     indices.contains(index) ? self[index] : nil
-  }
-}
-
-private extension URL {
-  var queryParameters: [String: String]? {
-    guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
-          let items = components.queryItems else { return nil }
-    return Dictionary(uniqueKeysWithValues: items.compactMap { item in
-      item.value.map { (item.name, $0) }
-    })
   }
 }

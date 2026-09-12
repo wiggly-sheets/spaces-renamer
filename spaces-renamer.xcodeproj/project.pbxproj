@@ -18,6 +18,9 @@
 		A90000040000000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000140000000000000001 /* SettingsView.swift */; };
 		A90000050000000000000001 /* InjectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000150000000000000001 /* InjectionManager.swift */; };
 		A90000060000000000000001 /* InjectionLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000160000000000000001 /* InjectionLifecycle.swift */; };
+		A90000070000000000000001 /* URLQueryValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000170000000000000001 /* URLQueryValues.swift */; };
+		A90000080000000000000001 /* CLIReplyPathPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000180000000000000001 /* CLIReplyPathPolicy.swift */; };
+		A90000090000000000000001 /* ManagedSymlinkInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000190000000000000001 /* ManagedSymlinkInstaller.swift */; };
 		A900000C0000000000000001 /* ProfileNamePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001C0000000000000001 /* ProfileNamePolicy.swift */; };
 		A900000E0000000000000001 /* InjectionCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001E0000000000000001 /* InjectionCommandBuilder.swift */; };
 		536586AAA96144FAB17DC11E8BAADFEF /* TOMLDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */; };
@@ -45,6 +48,9 @@
 		A90000140000000000000001 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A90000150000000000000001 /* InjectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectionManager.swift; sourceTree = "<group>"; };
 		A90000160000000000000001 /* InjectionLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectionLifecycle.swift; sourceTree = "<group>"; };
+		A90000170000000000000001 /* URLQueryValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLQueryValues.swift; sourceTree = "<group>"; };
+		A90000180000000000000001 /* CLIReplyPathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIReplyPathPolicy.swift; sourceTree = "<group>"; };
+		A90000190000000000000001 /* ManagedSymlinkInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedSymlinkInstaller.swift; sourceTree = "<group>"; };
 		A900001C0000000000000001 /* ProfileNamePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileNamePolicy.swift; sourceTree = "<group>"; };
 		A900001E0000000000000001 /* InjectionCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectionCommandBuilder.swift; sourceTree = "<group>"; };
 		C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOMLDecoder.swift; sourceTree = "<group>"; };
@@ -117,6 +123,9 @@
 				A90000140000000000000001 /* SettingsView.swift */,
 				A90000150000000000000001 /* InjectionManager.swift */,
 				A90000160000000000000001 /* InjectionLifecycle.swift */,
+				A90000170000000000000001 /* URLQueryValues.swift */,
+				A90000180000000000000001 /* CLIReplyPathPolicy.swift */,
+				A90000190000000000000001 /* ManagedSymlinkInstaller.swift */,
 				A900001C0000000000000001 /* ProfileNamePolicy.swift */,
 				A900001E0000000000000001 /* InjectionCommandBuilder.swift */,
 				C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */,
@@ -244,6 +253,9 @@
 				A90000040000000000000001 /* SettingsView.swift in Sources */,
 				A90000050000000000000001 /* InjectionManager.swift in Sources */,
 				A90000060000000000000001 /* InjectionLifecycle.swift in Sources */,
+				A90000070000000000000001 /* URLQueryValues.swift in Sources */,
+				A90000080000000000000001 /* CLIReplyPathPolicy.swift in Sources */,
+				A90000090000000000000001 /* ManagedSymlinkInstaller.swift in Sources */,
 				A900000C0000000000000001 /* ProfileNamePolicy.swift in Sources */,
 				A900000E0000000000000001 /* InjectionCommandBuilder.swift in Sources */,
 				A80DDE3C1FBCEBDE00794F8F /* Utils.swift in Sources */,
