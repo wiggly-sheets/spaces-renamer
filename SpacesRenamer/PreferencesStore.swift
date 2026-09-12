@@ -114,8 +114,11 @@ final class PreferencesStore: ObservableObject {
       let stored = try? JSONDecoder().decode(StoredPreferences.self, from: data),
       !stored.profiles.isEmpty
     {
-      profiles = stored.profiles
-      activeProfileID = stored.activeProfileID
+      let normalizedProfiles = Self.normalizedProfiles(stored.profiles)
+      profiles = normalizedProfiles
+      activeProfileID = normalizedProfiles.contains(where: { $0.id == stored.activeProfileID })
+        ? stored.activeProfileID
+        : normalizedProfiles[0].id
       namingMode = stored.namingMode
         ?? ((stored.automaticNaming ?? false) ? .applications : .manual)
       hotkey = stored.hotkey
@@ -174,7 +177,7 @@ final class PreferencesStore: ObservableObject {
     guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
     let trimmed = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
-    profiles[index].name = trimmed
+    profiles[index].name = uniqueProfileName(trimmed, excluding: id)
     persistAndNotify()
   }
 
@@ -186,13 +189,22 @@ final class PreferencesStore: ObservableObject {
   }
 
   func setName(_ name: String, for spaceID: String) {
-    guard let index = profiles.firstIndex(where: { $0.id == activeProfileID }) else { return }
-    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    if trimmed.isEmpty {
-      profiles[index].names.removeValue(forKey: spaceID)
-    } else {
-      profiles[index].names[spaceID] = trimmed
+    applyNames([spaceID: name], toProfile: activeProfileID)
+  }
+
+  func applyNames(_ names: [String: String], toProfile profileID: UUID) {
+    guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+    var updatedNames = profiles[index].names
+    for (spaceID, name) in names {
+      let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.isEmpty {
+        updatedNames.removeValue(forKey: spaceID)
+      } else {
+        updatedNames[spaceID] = trimmed
+      }
     }
+    guard updatedNames != profiles[index].names else { return }
+    profiles[index].names = updatedNames
     persistAndNotify()
   }
 
@@ -235,20 +247,21 @@ final class PreferencesStore: ObservableObject {
       }
       return
     }
-    let generated: [String: String] = Dictionary(uniqueKeysWithValues: snapshot.flatMap(\.spaces).compactMap { space -> (String, String)? in
+    var generated: [String: String] = [:]
+    for space in snapshot.flatMap(\.spaces) {
       let generatedName: String
       switch namingMode {
       case .manual:
-        return nil
+        continue
       case .applications:
-        guard !space.appNames.isEmpty else { return nil }
+        guard !space.appNames.isEmpty else { continue }
         generatedName = space.appNames.prefix(3).joined(separator: " · ")
       case .yabaiLabels:
-        guard let label = space.yabaiLabel, !label.isEmpty else { return nil }
+        guard let label = space.yabaiLabel, !label.isEmpty else { continue }
         generatedName = label
       }
-      return (space.id, generatedName)
-    })
+      generated[space.id] = generatedName
+    }
     guard generated != lastGeneratedNames else { return }
     lastGeneratedNames = generated
     persistAndNotify()
@@ -257,6 +270,65 @@ final class PreferencesStore: ObservableObject {
   func updateHotkey(_ newValue: HotkeyPreference) {
     hotkey = newValue
     persistAndNotify()
+  }
+
+  func applyConfiguration(
+    namingMode configuredNamingMode: NamingMode?,
+    showMenuBarIcon configuredShowMenuBarIcon: Bool?,
+    menuBarDisplayMode configuredMenuBarDisplayMode: MenuBarDisplayMode?,
+    showDuplicateApplications configuredShowDuplicateApplications: Bool?,
+    hotkey configuredHotkey: HotkeyPreference?,
+    activeProfileID configuredActiveProfileID: UUID?,
+    namesByProfileID: [UUID: [String: String]]
+  ) {
+    var changed = false
+
+    if let configuredNamingMode, configuredNamingMode != namingMode {
+      namingMode = configuredNamingMode
+      changed = true
+    }
+    if let configuredShowMenuBarIcon, configuredShowMenuBarIcon != showMenuBarIcon {
+      showMenuBarIcon = configuredShowMenuBarIcon
+      changed = true
+    }
+    if let configuredMenuBarDisplayMode, configuredMenuBarDisplayMode != menuBarDisplayMode {
+      menuBarDisplayMode = configuredMenuBarDisplayMode
+      changed = true
+    }
+    if let configuredShowDuplicateApplications,
+       configuredShowDuplicateApplications != showDuplicateApplications {
+      showDuplicateApplications = configuredShowDuplicateApplications
+      changed = true
+    }
+    if let configuredHotkey, configuredHotkey != hotkey {
+      hotkey = configuredHotkey
+      changed = true
+    }
+    if let configuredActiveProfileID,
+       configuredActiveProfileID != activeProfileID,
+       profiles.contains(where: { $0.id == configuredActiveProfileID }) {
+      activeProfileID = configuredActiveProfileID
+      changed = true
+    }
+
+    for index in profiles.indices {
+      guard let configuredNames = namesByProfileID[profiles[index].id] else { continue }
+      var updatedNames = profiles[index].names
+      for (spaceID, name) in configuredNames {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+          updatedNames.removeValue(forKey: spaceID)
+        } else {
+          updatedNames[spaceID] = trimmed
+        }
+      }
+      if updatedNames != profiles[index].names {
+        profiles[index].names = updatedNames
+        changed = true
+      }
+    }
+
+    if changed { persistAndNotify() }
   }
 
   @discardableResult
@@ -282,14 +354,22 @@ final class PreferencesStore: ObservableObject {
     loginItemEnabled = SMAppService.mainApp.status == .enabled
   }
 
-  private func uniqueProfileName(_ base: String) -> String {
-    var candidate = base
-    var suffix = 2
-    while profiles.contains(where: { $0.name.localizedCaseInsensitiveCompare(candidate) == .orderedSame }) {
-      candidate = "\(base) \(suffix)"
-      suffix += 1
+  private func uniqueProfileName(_ base: String, excluding excludedID: UUID? = nil) -> String {
+    ProfileNamePolicy.uniqueName(
+      base,
+      existingNames: profiles.compactMap { profile in
+        profile.id == excludedID ? nil : profile.name
+      }
+    )
+  }
+
+  private static func normalizedProfiles(_ storedProfiles: [SpaceProfile]) -> [SpaceProfile] {
+    let names = ProfileNamePolicy.normalizedNames(storedProfiles.map(\.name))
+    return zip(storedProfiles, names).map { profile, name in
+      var normalized = profile
+      normalized.name = name
+      return normalized
     }
-    return candidate
   }
 
   private func persistAndNotify() {
@@ -315,7 +395,10 @@ final class PreferencesStore: ObservableObject {
     }
 
     // Compatibility contract for the injected Dock bundle.
-    let profileMappings = Dictionary(uniqueKeysWithValues: profiles.map { ($0.name, $0.names) })
+    var profileMappings: [String: [String: String]] = [:]
+    for profile in profiles {
+      profileMappings[profile.name, default: [:]].merge(profile.names) { _, latest in latest }
+    }
     let displayedNames = namingMode != .manual
       ? activeProfile.names.merging(lastGeneratedNames) { _, generated in generated }
       : activeProfile.names
