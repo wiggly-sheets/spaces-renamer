@@ -25,7 +25,8 @@ plugin:
 package-injection: plugin
 	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer" -thin arm64e -output injection/lib/spaces-renamer.dylib
 
-universal: app package-injection verify
+universal: app
+	$(MAKE) verify
 
 dmg: app
 	./packaging/make-dmg.sh $(VERSION)
@@ -39,14 +40,18 @@ man:
 	scdoc < docs/sr.1.scd > "$(MANPAGE)"
 
 verify:
-	lipo -info "$(APP)/Contents/MacOS/SpacesRenamer"
-	lipo -info "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer"
-	lipo -info injection/lib/spaces-renamer.dylib
+	lipo "$(APP)/Contents/MacOS/SpacesRenamer" -verify_arch arm64 x86_64
+	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer" -verify_arch arm64e x86_64
+	lipo injection/lib/spaces-renamer.dylib -verify_arch arm64e
 	# Embedded injection stack presence + architecture checks.
 	test -x "$(APP_INJECTION)/run.sh"
 	test -x "$(APP_INJECTION)/lib/dylinject"
-	lipo -info "$(APP_INJECTION)/lib/spaces-renamer.dylib"
+	lipo "$(APP_INJECTION)/lib/dylinject" -verify_arch arm64e
+	lipo "$(APP_INJECTION)/lib/spaces-renamer.dylib" -verify_arch arm64e
+	cmp -s injection/lib/spaces-renamer.dylib "$(APP_INJECTION)/lib/spaces-renamer.dylib"
 	test -f "$(APP)/Contents/Resources/man/man1/sr.1"
+	test -f "$(APP)/Contents/_CodeSignature/CodeResources"
+	codesign --verify --deep --strict --all-architectures "$(APP)"
 
 test:
 	./scripts/tests/test_release_notes.sh
@@ -55,6 +60,15 @@ test:
 	./scripts/tests/test_embed_injection.sh
 	./scripts/tests/test_manpage.sh
 	./scripts/tests/test_settings_contracts.sh
+	./scripts/tests/test_cli.sh
+	./scripts/tests/test_make_verify.sh
+	./scripts/tests/test_dock_hook_safety.sh
+	./scripts/tests/test_injection_lifecycle.sh
+	./scripts/tests/test_app_policies.sh
+	./scripts/tests/test_yabai_client.sh
+	./scripts/tests/test_preference_config_policies.sh
+	./scripts/tests/test_replacing_file_watcher.sh
+	./scripts/tests/test_injection_command.sh
 
 clean:
 	xcodebuild -project $(PROJECT) -scheme SpacesRenamer clean

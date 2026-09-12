@@ -120,7 +120,7 @@ assert_fixed \
 
 assert_fixed \
   "overlapping injection attempts are rejected" \
-  'guard !operationInProgress else { return }' \
+  'guard activeOperation == nil else { return }' \
   "$INJECTION_MANAGER"
 
 assert_fixed \
