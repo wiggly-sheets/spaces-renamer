@@ -9,10 +9,9 @@
 #               Default: <repo>/injection
 #
 # The stack is copied to the stable, code-signed-safe location
-# Contents/Resources/Injection, preserving run.sh's contract: the script
-# resolves its payload from a sibling lib/ directory. The injector executable
-# and the payload are marked executable so the app can invoke run.sh with
-# /bin/bash directly.
+# Contents/Resources/Injection. run.sh retains its sibling lib/ contract for
+# standalone recovery, while the app verifies and stages the two lib artifacts
+# into a root-owned temporary directory before elevation executes them.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,5 +46,17 @@ mkdir -p "$DESTINATION/lib"
 install -m 0755 "$SOURCE_DIR/run.sh" "$DESTINATION/run.sh"
 install -m 0755 "$SOURCE_DIR/lib/dylinject" "$DESTINATION/lib/dylinject"
 install -m 0755 "$SOURCE_DIR/lib/spaces-renamer.dylib" "$DESTINATION/lib/spaces-renamer.dylib"
+
+# The app validates its running code signature before elevating. Xcode's
+# linker signature does not seal resources, so replace it after every resource
+# has been embedded. A future Developer ID build must embed first and apply its
+# distribution signature afterward instead of using this ad-hoc build path.
+if [[ -x "$APP/Contents/MacOS/SpacesRenamer" ]]; then
+  /usr/bin/codesign \
+    --force \
+    --sign - \
+    --entitlements "$ROOT/SpacesRenamer/SpacesRenamer.entitlements" \
+    "$APP"
+fi
 
 echo "Embedded injection stack into $DESTINATION"
