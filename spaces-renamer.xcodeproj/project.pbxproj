@@ -21,6 +21,7 @@
 		A90000070000000000000001 /* URLQueryValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000170000000000000001 /* URLQueryValues.swift */; };
 		A90000080000000000000001 /* CLIReplyPathPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000180000000000000001 /* CLIReplyPathPolicy.swift */; };
 		A90000090000000000000001 /* ManagedSymlinkInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000190000000000000001 /* ManagedSymlinkInstaller.swift */; };
+		A900000A0000000000000001 /* YabaiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001A0000000000000001 /* YabaiClient.swift */; };
 		A900000B0000000000000001 /* ConfigPolicies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001B0000000000000001 /* ConfigPolicies.swift */; };
 		A900000C0000000000000001 /* ProfileNamePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001C0000000000000001 /* ProfileNamePolicy.swift */; };
 		A900000D0000000000000001 /* ReplacingFileWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001D0000000000000001 /* ReplacingFileWatcher.swift */; };
@@ -53,6 +54,7 @@
 		A90000170000000000000001 /* URLQueryValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLQueryValues.swift; sourceTree = "<group>"; };
 		A90000180000000000000001 /* CLIReplyPathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIReplyPathPolicy.swift; sourceTree = "<group>"; };
 		A90000190000000000000001 /* ManagedSymlinkInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedSymlinkInstaller.swift; sourceTree = "<group>"; };
+		A900001A0000000000000001 /* YabaiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YabaiClient.swift; sourceTree = "<group>"; };
 		A900001B0000000000000001 /* ConfigPolicies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigPolicies.swift; sourceTree = "<group>"; };
 		A900001C0000000000000001 /* ProfileNamePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileNamePolicy.swift; sourceTree = "<group>"; };
 		A900001D0000000000000001 /* ReplacingFileWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplacingFileWatcher.swift; sourceTree = "<group>"; };
@@ -130,6 +132,7 @@
 				A90000170000000000000001 /* URLQueryValues.swift */,
 				A90000180000000000000001 /* CLIReplyPathPolicy.swift */,
 				A90000190000000000000001 /* ManagedSymlinkInstaller.swift */,
+				A900001A0000000000000001 /* YabaiClient.swift */,
 				A900001B0000000000000001 /* ConfigPolicies.swift */,
 				A900001C0000000000000001 /* ProfileNamePolicy.swift */,
 				A900001D0000000000000001 /* ReplacingFileWatcher.swift */,
@@ -262,6 +265,7 @@
 				A90000070000000000000001 /* URLQueryValues.swift in Sources */,
 				A90000080000000000000001 /* CLIReplyPathPolicy.swift in Sources */,
 				A90000090000000000000001 /* ManagedSymlinkInstaller.swift in Sources */,
+				A900000A0000000000000001 /* YabaiClient.swift in Sources */,
 				A900000B0000000000000001 /* ConfigPolicies.swift in Sources */,
 				A900000C0000000000000001 /* ProfileNamePolicy.swift in Sources */,
 				A900000D0000000000000001 /* ReplacingFileWatcher.swift in Sources */,

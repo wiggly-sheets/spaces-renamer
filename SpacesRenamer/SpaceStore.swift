@@ -19,23 +19,48 @@ struct DisplaySpaces: Identifiable, Hashable {
 final class SpaceStore: ObservableObject {
   @Published private(set) var snapshot: [DisplaySpaces] = []
   @Published private(set) var errorMessage: String?
+  private var refreshTask: Task<Void, Never>?
+  private var refreshGeneration = 0
 
+  @MainActor
   func refresh(
     for namingMode: NamingMode = .manual,
-    showDuplicateApplications: Bool = false
+    showDuplicateApplications: Bool = false,
+    completion: (() -> Void)? = nil
   ) {
+    refreshGeneration += 1
+    let generation = refreshGeneration
+    refreshTask?.cancel()
+    refreshTask = nil
+
     let connection = _CGSDefaultConnection()
     guard let monitors = CGSCopyManagedDisplaySpaces(connection) as? [[String: Any]] else {
       errorMessage = "Could not read macOS Spaces."
       return
     }
 
-    let yabaiData = namingMode == .manual
-      ? nil
-      : Self.namingDataFromYabai(
-        includeApplications: namingMode == .applications,
-        showDuplicateApplications: showDuplicateApplications
-      )
+    if namingMode == .manual {
+      apply(monitors: monitors, yabaiData: nil)
+      completion?()
+      return
+    }
+
+    refreshTask = Task { @MainActor [weak self] in
+      let yabaiData = await Task.detached(priority: .userInitiated) {
+        Self.namingDataFromYabai(
+          includeApplications: namingMode == .applications,
+          showDuplicateApplications: showDuplicateApplications
+        )
+      }.value
+      guard let self, !Task.isCancelled, generation == self.refreshGeneration else { return }
+      self.refreshTask = nil
+      self.apply(monitors: monitors, yabaiData: yabaiData)
+      completion?()
+    }
+  }
+
+  @MainActor
+  private func apply(monitors: [[String: Any]], yabaiData: YabaiNamingData?) {
     snapshot = monitors.enumerated().map { monitorIndex, monitor in
       let currentUUID = (monitor["Current Space"] as? [String: Any])?["uuid"] as? String
       let rawSpaces = monitor["Spaces"] as? [[String: Any]] ?? []
@@ -68,7 +93,11 @@ final class SpaceStore: ObservableObject {
     errorMessage = nil
   }
 
-  private struct YabaiNamingData {
+  deinit {
+    refreshTask?.cancel()
+  }
+
+  private struct YabaiNamingData: Sendable {
     let applicationsByWorkspace: [Int: [String]]
     let labelsByWorkspace: [Int: String]
   }
@@ -131,11 +160,12 @@ final class SpaceStore: ObservableObject {
       let spaces = try? JSONDecoder().decode([YabaiSpace].self, from: spacesData)
     else { return nil }
 
-    let labelsByWorkspace: [Int: String] = Dictionary(uniqueKeysWithValues: spaces.compactMap {
-      space -> (Int, String)? in
-      guard let label = space.label, !label.isEmpty else { return nil }
-      return (space.id, label)
-    })
+    var labelsByWorkspace: [Int: String] = [:]
+    for space in spaces {
+      if let label = space.label, !label.isEmpty {
+        labelsByWorkspace[space.id] = label
+      }
+    }
     guard includeApplications else {
       return YabaiNamingData(
         applicationsByWorkspace: [:],
@@ -147,7 +177,8 @@ final class SpaceStore: ObservableObject {
       let windows = try? JSONDecoder().decode([YabaiWindow].self, from: windowsData)
     else { return nil }
 
-    let managedIDByIndex = Dictionary(uniqueKeysWithValues: spaces.map { ($0.index, $0.id) })
+    var managedIDByIndex: [Int: Int] = [:]
+    for space in spaces { managedIDByIndex[space.index] = space.id }
     var result: [Int: [String]] = [:]
     let spatiallyOrderedWindows = windows.sorted { left, right in
       if left.space != right.space { return left.space < right.space }
@@ -175,26 +206,7 @@ final class SpaceStore: ObservableObject {
   }
 
   private static func runYabaiQuery(_ arguments: [String]) -> Data? {
-    let candidates = ["/opt/homebrew/bin/yabai", "/usr/local/bin/yabai"]
-    guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-      return nil
-    }
-
-    let process = Process()
-    let output = Pipe()
-    process.executableURL = URL(fileURLWithPath: path)
-    process.arguments = arguments
-    process.standardOutput = output
-    process.standardError = Pipe()
-
-    do {
-      try process.run()
-      let data = output.fileHandleForReading.readDataToEndOfFile()
-      process.waitUntilExit()
-      return process.terminationStatus == 0 ? data : nil
-    } catch {
-      return nil
-    }
+    YabaiClient.run(arguments)
   }
 
   private static func appendUnique(
