@@ -21,7 +21,9 @@
 		A90000070000000000000001 /* URLQueryValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000170000000000000001 /* URLQueryValues.swift */; };
 		A90000080000000000000001 /* CLIReplyPathPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000180000000000000001 /* CLIReplyPathPolicy.swift */; };
 		A90000090000000000000001 /* ManagedSymlinkInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000190000000000000001 /* ManagedSymlinkInstaller.swift */; };
+		A900000B0000000000000001 /* ConfigPolicies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001B0000000000000001 /* ConfigPolicies.swift */; };
 		A900000C0000000000000001 /* ProfileNamePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001C0000000000000001 /* ProfileNamePolicy.swift */; };
+		A900000D0000000000000001 /* ReplacingFileWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001D0000000000000001 /* ReplacingFileWatcher.swift */; };
 		A900000E0000000000000001 /* InjectionCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A900001E0000000000000001 /* InjectionCommandBuilder.swift */; };
 		536586AAA96144FAB17DC11E8BAADFEF /* TOMLDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */; };
 		09536C5EDB0E4489B0A1C5E52060FB9B /* ConfigFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99585131D13B455BB5FD04943F16128 /* ConfigFile.swift */; };
@@ -51,7 +53,9 @@
 		A90000170000000000000001 /* URLQueryValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLQueryValues.swift; sourceTree = "<group>"; };
 		A90000180000000000000001 /* CLIReplyPathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIReplyPathPolicy.swift; sourceTree = "<group>"; };
 		A90000190000000000000001 /* ManagedSymlinkInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedSymlinkInstaller.swift; sourceTree = "<group>"; };
+		A900001B0000000000000001 /* ConfigPolicies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigPolicies.swift; sourceTree = "<group>"; };
 		A900001C0000000000000001 /* ProfileNamePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileNamePolicy.swift; sourceTree = "<group>"; };
+		A900001D0000000000000001 /* ReplacingFileWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplacingFileWatcher.swift; sourceTree = "<group>"; };
 		A900001E0000000000000001 /* InjectionCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectionCommandBuilder.swift; sourceTree = "<group>"; };
 		C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOMLDecoder.swift; sourceTree = "<group>"; };
 		99585131D13B455BB5FD04943F16128 /* ConfigFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigFile.swift; sourceTree = "<group>"; };
@@ -126,7 +130,9 @@
 				A90000170000000000000001 /* URLQueryValues.swift */,
 				A90000180000000000000001 /* CLIReplyPathPolicy.swift */,
 				A90000190000000000000001 /* ManagedSymlinkInstaller.swift */,
+				A900001B0000000000000001 /* ConfigPolicies.swift */,
 				A900001C0000000000000001 /* ProfileNamePolicy.swift */,
+				A900001D0000000000000001 /* ReplacingFileWatcher.swift */,
 				A900001E0000000000000001 /* InjectionCommandBuilder.swift */,
 				C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */,
 				99585131D13B455BB5FD04943F16128 /* ConfigFile.swift */,
@@ -256,7 +262,9 @@
 				A90000070000000000000001 /* URLQueryValues.swift in Sources */,
 				A90000080000000000000001 /* CLIReplyPathPolicy.swift in Sources */,
 				A90000090000000000000001 /* ManagedSymlinkInstaller.swift in Sources */,
+				A900000B0000000000000001 /* ConfigPolicies.swift in Sources */,
 				A900000C0000000000000001 /* ProfileNamePolicy.swift in Sources */,
+				A900000D0000000000000001 /* ReplacingFileWatcher.swift in Sources */,
 				A900000E0000000000000001 /* InjectionCommandBuilder.swift in Sources */,
 				A80DDE3C1FBCEBDE00794F8F /* Utils.swift in Sources */,
 				536586AAA96144FAB17DC11E8BAADFEF /* TOMLDecoder.swift in Sources */,
