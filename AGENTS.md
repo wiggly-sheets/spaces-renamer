@@ -6,24 +6,33 @@ Spaces Renamer gives macOS Spaces persistent names in Mission Control. The
 project has two cooperating products:
 
 1. `SpacesRenamer.app` is the user-facing SwiftUI menu bar application.
-2. `spaces-renamer.bundle` is an Objective-C bundle injected into Dock to
+2. `spaces-renamer.dylib` is an Objective-C dylib injected into Dock to
    replace Mission Control's Space labels.
 
 Keep this split. Swift is appropriate for application state and UI, while the
 injected bundle should remain Objective-C because it hooks private Objective-C
 classes and `CALayer` methods inside Dock.
 
-The supported deployment target is macOS 13 or newer.
+The supported deployment target is macOS 14 or newer.
 
 ## Repository Layout
 
+- `SpacesRenamer/SpacesRenamerApp.swift`
+  - `@main` SwiftUI `App` with `@NSApplicationDelegateAdaptor`.
+  - `MenuBarExtra` + `.menuBarExtraStyle(.window)` popover.
+  - `PopoverContent` = `RenamerView` plus the relocated footer: naming-mode
+    menu, injection status and Inject Now/Deactivate actions,
+    Keep-Dock-Renaming-Active toggle, and Quit.
+  - `menuBarLabel` switches on `MenuBarDisplayMode`.
 - `SpacesRenamer/AppDelegate.swift`
-  - Application lifecycle.
-  - Status item and popover.
-  - Settings window.
-  - Global hotkey.
-  - Native Space and application notifications.
-  - Debounced yabai event socket.
+  - Slimmed `NSApplicationDelegateAdaptor` delegate (no `@main`, no status
+    item/popover/settings window).
+  - Injection consent flow, global hotkey, yabai monitor, deeplinks, CLI
+    symlinks, config file, HUD, termination cleanup.
+  - The `renamer` deeplink opens Settings since `MenuBarExtra` cannot be
+    opened programmatically.
+- `SpacesRenamer/AppModel.swift`
+  - `@MainActor @Observable` owner of the settings window.
 - `SpacesRenamer/PreferencesStore.swift`
   - Persistent profiles and active profile.
   - Naming mode.
@@ -34,20 +43,43 @@ The supported deployment target is macOS 13 or newer.
   - Reads current displays and Spaces through private CoreGraphics APIs.
   - Queries yabai for Space labels and real application windows.
   - Applies the same real-window predicate used by Spacemap.
+- `SpacesRenamer/Injector.swift`
+  - `Injector`/`InjectorBackend`/`InjectorState`/`InjectorError`/`PluginMarker`/
+    `ActivationModel` for the DYLD/MIP injection stack.
+- `SpacesRenamer/InjectionManager.swift`
+  - State machine: `unsupported`/`prerequisitesMissing`/`checking`/`inactive`/
+    `activating`/`active`/`error`.
 - `SpacesRenamer/RenamerView.swift`
   - SwiftUI renaming popover.
 - `SpacesRenamer/SettingsView.swift`
-  - SwiftUI settings for General, Profiles, Hotkey, and Naming.
+  - SwiftUI settings for General, Profiles, Hotkey, Naming, plus a Diagnostics
+    section and HUD toggle.
+- `SpacesRenamer/SpaceHUD.swift`
+  - Glass-styled HUD shown on Space change.
+- `SpacesRenamer/DiagnosticsModel.swift` / `DiagnosticsView.swift`
+  - Four checks: SIP, boot args, plugin version, plugin active.
+- `SpacesRenamer/SpaceCell.swift`
+  - SwiftUI text field with focus state (replaces `SpaceNameCard`).
+- `SpacesRenamer/Paths.swift`
+  - Centralized constants and preference-domain keys.
+- `SpacesRenamer/Package.swift` / `SpacesRenamer/CGSPrivate/`
+  - SwiftPM manifest (swift-tools-version 6.0, `swiftLanguageMode(.v5)`,
+    macOS 14 platform) and the ported private CoreGraphics C target.
 - `spaces-renamer/spacesRenamer.m`
   - Dock/Mission Control hook and label layout.
+  - Reads the `com.apple.dock` preference domain
+    (`SpacesRenamerNames`/`SpacesRenamerMonitors`); macOS 27 `WindowManager`
+    `SpacesBar` path; `SpacesRenamerPlugin` status marker.
 - `spaces-renamer/ZKSwizzle.{h,m}`
   - Objective-C runtime swizzling support.
 - `injection/`
-  - Current standalone injection script and arm64e payload.
-  - This is the active injection implementation; injection is not yet managed
-    by the GUI application.
+  - `injector.sh` — the active DYLD LaunchAgent + MIP bundle injection script.
+- `packaging/mip/Info.plist`
+  - Feeds `make bundle` for the MIP bundle.
 - `Makefile`
   - Canonical local build and architecture verification commands.
+  - `app` builds via SwiftPM and hand-assembles the app bundle; `plugin` stays
+    xcodebuild.
 
 ## Build and Verification
 
@@ -57,6 +89,8 @@ Use the Makefile instead of constructing one-off Xcode commands:
 make app
 make plugin
 make package-injection
+make bundle
+make inject
 make universal
 make verify
 ```
@@ -66,6 +100,11 @@ Expected architectures:
 - GUI app: `arm64 x86_64`
 - Dock bundle: `arm64e x86_64`
 - Packaged injector payload: `arm64e`
+
+`make app` builds via SwiftPM (`swift build`) and hand-assembles the app bundle
+at `.build/SpacesRenamer.app`. `make bundle` assembles the MIP bundle and
+`make inject` runs the manual `injection/injector.sh dyld on` path. `make
+plugin` stays xcodebuild.
 
 `make package-injection` extracts the current arm64e slice into
 `injection/lib/spaces-renamer.dylib`. `make universal` builds both products,
@@ -98,7 +137,8 @@ xcodebuild \
 
 ### Menu Bar
 
-The status item uses the `rectangle.grid.2x2` SF Symbol by default. General
+The menu bar item uses a `MenuBarExtra` with `.menuBarExtraStyle(.window)`
+popover and shows the `rectangle.grid.2x2` SF Symbol by default. General
 settings allow:
 
 - showing or hiding the menu bar item;
@@ -110,9 +150,15 @@ The text reflects the status item's display when possible and falls back to the
 first current Space. It updates without relaunching when the active Space,
 profile, naming mode, or generated name changes.
 
-If the menu bar item is hidden, launching the already-running app opens
-Settings. The global hotkey also opens Settings when there is no visible status
-item.
+The popover's `PopoverContent` is the renaming view plus a footer with the
+former right-click menu items: the naming-mode menu, injection status and
+Inject Now/Deactivate actions, the Keep-Dock-Renaming-Active toggle, and Quit.
+Settings, Profiles, and the HUD toggle live in Settings.
+
+If the menu bar item is hidden, the `MenuBarExtra` stays present with an empty
+label (macOS 27 SDK `SceneBuilder` no longer supports runtime `if` scenes);
+launching the already-running app opens Settings, and the global hotkey also
+opens Settings when there is no visible status item.
 
 ### Profiles and Manual Names
 
@@ -168,14 +214,17 @@ Modern settings are stored at:
 ~/Library/Application Support/SpacesRenamer/preferences.json
 ```
 
-The injected bundle still consumes the legacy compatibility files:
+The injected bundle consumes the live preference-domain contract:
 
 ```text
-~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.plist
-~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.currentspaces.plist
+com.apple.dock         SpacesRenamerNames     { space uuid : name }
+com.apple.dock         SpacesRenamerMonitors  CGSCopyManagedDisplaySpaces array
+<host's own domain>    SpacesRenamerPlugin    status marker (Version/Build/HostPID/...)
 ```
 
-Do not change these paths or the `spaces_renaming` compatibility contract
+The app writes `SpacesRenamerNames`/`SpacesRenamerMonitors` into the
+`com.apple.dock` domain, which every possible host can read; the bundle
+publishes its status marker in its own host domain. Do not change these keys
 without updating both the Swift app and injected bundle together.
 
 ## Dock Hook Performance
@@ -185,7 +234,7 @@ paths minimal.
 
 Implemented optimizations include:
 
-- plist parsing cached until either file modification date changes;
+- preference-domain reads cached by cfprefsd (no file plumbing in the hot path);
 - discovered `ECTextLayer` descendants cached with associated objects;
 - CoreText width measurements cached by font, size, and string;
 - KVO registration performed once per text layer;
@@ -201,7 +250,6 @@ The bundle emits `os_signpost` instrumentation with:
 - subsystem: `com.wiggly-sheets.spaces-renamer`
 - category: `DockHook`
 - interval: `ApplyNames`
-- event: `ReloadPlists`
 
 Use Instruments Points of Interest or Time Profiler attached to Dock. Preserve
 these signposts when changing the hot path.
@@ -215,13 +263,16 @@ work, measure it and constrain it to the smallest safe subtree.
 The repository pipeline is:
 
 1. `make package-injection` creates the current arm64e payload.
-2. `injection/run.sh` validates Apple silicon and required NVRAM boot arguments.
-3. The script clears extended attributes.
-4. It runs the signed `dylinject` executable through `sudo`.
-5. `dylinject` loads `spaces-renamer.dylib` into Dock.
+2. `injection/injector.sh` decides DYLD vs MIP: it validates Apple silicon and
+   required NVRAM boot arguments, then sets up `DYLD_INSERT_LIBRARIES` via a
+   per-user LaunchAgent or registers the MIP bundle.
+3. Dock loads `spaces-renamer.dylib` on the next Dock restart.
 
-The supplied `dylinject` executable is arm64e-only and calls
-`task_for_pid`/Mach VM APIs. Root authorization is currently required.
+Embedded into the app bundle at build time:
+
+- `Contents/PlugIns/spaces-renamer.dylib` (arm64e);
+- `Contents/Resources/injector.sh` (executable);
+- `Contents/Resources/SpacesRenamer.mip.bundle` (MIP bundle).
 
 Injection requires reduced macOS security protections. Never run the injection
 script, modify boot arguments, change SIP/AMFI settings, install a privileged
@@ -244,7 +295,7 @@ App-managed injection is designed for v1.0.0. The chosen design (see
 `docs/adr/0001-app-managed-injection-elevation.md` for the decision and its
 constraints):
 
-- embed the injection stack (`injection/run.sh`, `dylinject`, and
+- embed the injection stack (`injection/injector.sh`, the MIP bundle, and
   `spaces-renamer.dylib`) inside `SpacesRenamer.app` at build time;
 - elevate via `osascript` `do shell script ... with administrator privileges`,
   which shows the standard macOS password / Touch ID dialog — not the
@@ -256,8 +307,11 @@ constraints):
   existing launch-at-login); toggle in Settings;
 - keep manual re-inject affordances in Settings and the menu bar for recovery
   when Dock crashes or injection is inactive while the app runs;
-- surface health state through the bundle-originated handshake (Dock PID and
-  payload version). Never assume a successful injector exit alone proves the
+- surface health state through the bundle-originated handshake — now the
+  `SpacesRenamerPlugin` preference-domain marker
+  (`Version`/`Build`/`HostPID`/`HostBundleID`/`LoadedAt`/`FirstHookAt`
+  written into the host's own domain and read by `PluginMarker` in
+  `Injector.swift`). Never assume a successful injector exit alone proves the
   bundle is active.
 
 No Developer ID Application certificate is currently available. That blocks
@@ -327,7 +381,10 @@ In priority order:
   - Add `packaging/` with the create-dmg invocation and a placeholder
     background (plain white/grey, "Drag into Applications" instructions baked
     in); add a `make dmg` target.
-- [ ] Add app-managed injection for all-in-one workflow (started in separate branch)
+- [x] Add app-managed injection for all-in-one workflow (largely done — Phase 1
+  implemented the DYLD/MIP stack, `InjectionManager` UI/state, and the Dock
+  handshake; the remaining work is the app-managed elevation +
+  auto-inject-on-Dock-restart workflow. See `docs/port-plan-dyld-mip.md`.)
   - Implementation branch: `feat/app-managed-injection` (was
     `codex/app-managed-injection`). Design in the App-Managed Injection section
     above and `docs/adr/0001-app-managed-injection-elevation.md`. The XPC
@@ -345,8 +402,9 @@ In priority order:
 1. Implement the production privileged-helper path (`SMAppService` launch
    daemon + scoped XPC) once a Developer ID signing identity exists; v1.0.0
    ships app-managed injection via system admin-prompt elevation instead.
-2. Add an injection handshake, health status, version reporting, and
-   idempotency.
+2. Done — the injection handshake now works via the `SpacesRenamerPlugin`
+   preference-domain marker (version, health status, host PID/bundle ID,
+   load/first-hook timestamps); idempotency is handled by `injector.sh`.
 3. Establish Developer ID signing and a reproducible release pipeline.
 4. Add automated tests for preference migration, name formatting, profile
    switching, and yabai JSON filtering.

@@ -1,5 +1,9 @@
 import AppKit
-import Combine
+import Observation
+
+#if canImport(CGSPrivate)
+import CGSPrivate
+#endif
 
 struct ManagedSpace: Identifiable, Hashable {
   let id: String
@@ -16,9 +20,11 @@ struct DisplaySpaces: Identifiable, Hashable {
   let spaces: [ManagedSpace]
 }
 
-final class SpaceStore: ObservableObject {
-  @Published private(set) var snapshot: [DisplaySpaces] = []
-  @Published private(set) var errorMessage: String?
+@MainActor
+@Observable
+final class SpaceStore {
+  private(set) var snapshot: [DisplaySpaces] = []
+  private(set) var errorMessage: String?
   private var refreshTask: Task<Void, Never>?
   private var refreshGeneration = 0
 
@@ -84,17 +90,37 @@ final class SpaceStore: ObservableObject {
       )
     }
 
-    let plist: NSDictionary = ["Monitors": monitors]
-    try? FileManager.default.createDirectory(
-      atPath: (Utils.listOfSpacesPlist as NSString).deletingLastPathComponent,
-      withIntermediateDirectories: true
-    )
-    plist.write(toFile: Utils.listOfSpacesPlist, atomically: true)
+    // Live preference-domain layout for the injected Dock bundle. Only write
+    // when the value changed to avoid cfprefsd write churn on every refresh.
+    let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
+    let previousMonitors = dockDefaults?.array(forKey: "SpacesRenamerMonitors")
+    if previousMonitors == nil || !NSArray(array: monitors).isEqual(previousMonitors) {
+      dockDefaults?.set(monitors, forKey: "SpacesRenamerMonitors")
+    }
     errorMessage = nil
   }
 
-  deinit {
-    refreshTask?.cancel()
+  /// The text shown in the menu bar label for the current Space (empty when
+  /// none is known, which the MenuBarExtra treats as the plain icon).
+  func menuBarLabel(
+    for displayMode: MenuBarDisplayMode,
+    preferences: PreferencesStore
+  ) -> String {
+    guard let space = currentSpace else { return "" }
+    let name = preferences.name(for: space.id)
+    switch displayMode {
+    case .icon:
+      return ""
+    case .spaceName:
+      return name
+    case .spaceNumberAndName:
+      return "\(space.index). \(name)"
+    }
+  }
+
+  private var currentSpace: ManagedSpace? {
+    let all = snapshot.flatMap(\.spaces)
+    return all.first(where: \.isCurrent) ?? all.first
   }
 
   private struct YabaiNamingData: Sendable {
@@ -102,7 +128,7 @@ final class SpaceStore: ObservableObject {
     let labelsByWorkspace: [Int: String]
   }
 
-  private static func namingDataFromYabai(
+  nonisolated private static func namingDataFromYabai(
     includeApplications: Bool,
     showDuplicateApplications: Bool
   ) -> YabaiNamingData? {
@@ -205,11 +231,11 @@ final class SpaceStore: ObservableObject {
     )
   }
 
-  private static func runYabaiQuery(_ arguments: [String]) -> Data? {
+  nonisolated private static func runYabaiQuery(_ arguments: [String]) -> Data? {
     YabaiClient.run(arguments)
   }
 
-  private static func appendUnique(
+  nonisolated private static func appendUnique(
     _ application: String,
     to managedSpaceID: Int,
     in result: inout [Int: [String]]

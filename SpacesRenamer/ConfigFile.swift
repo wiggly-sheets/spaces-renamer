@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class ConfigFile: ObservableObject {
   static let directoryURL: URL = {
     FileManager.default.homeDirectoryForCurrentUser
@@ -30,8 +31,6 @@ final class ConfigFile: ObservableObject {
     read()
     startWatching()
   }
-
-  deinit { stopWatching() }
 
   var fileExists: Bool {
     FileManager.default.fileExists(atPath: Self.fileURL.path)
@@ -187,8 +186,12 @@ final class ConfigFile: ObservableObject {
     lastWatchError = nil
     let watcher = ReplacingFileWatcher(
       fileURL: Self.fileURL,
-      onChange: { [weak self] in self?.read() },
-      onError: { [weak self] message in self?.lastWatchError = message }
+      onChange: { [weak self] in
+        Task { @MainActor in self?.read() }
+      },
+      onError: { [weak self] message in
+        Task { @MainActor in self?.lastWatchError = message }
+      }
     )
     self.watcher = watcher
     watcher.start()

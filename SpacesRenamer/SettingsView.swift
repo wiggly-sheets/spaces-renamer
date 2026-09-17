@@ -8,6 +8,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
   case hotkey = "Hotkey"
   case automatic = "Naming"
   case injection = "Injection"
+  case diagnostics = "Diagnostics"
 
   var id: Self { self }
   var icon: String {
@@ -18,13 +19,14 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     case .hotkey: return "keyboard"
     case .automatic: return "wand.and.stars"
     case .injection: return "syringe"
+    case .diagnostics: return "wrench.and.screwdriver"
     }
   }
 }
 
 struct SettingsView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
-  @EnvironmentObject private var spaces: SpaceStore
+  @Environment(PreferencesStore.self) private var preferences
+  @Environment(SpaceStore.self) private var spaces
   @State private var selection: SettingsSection? = .general
 
   var body: some View {
@@ -42,6 +44,10 @@ struct SettingsView: View {
         case .hotkey: HotkeySettingsView()
         case .automatic: AutomaticNamingSettingsView()
         case .injection: InjectionSettingsView()
+        case .diagnostics:
+          SettingsPage(title: "Diagnostics", subtitle: "Check the injection environment") {
+            DiagnosticsView()
+          }
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -51,8 +57,8 @@ struct SettingsView: View {
 }
 
 private struct InjectionSettingsView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
-  @EnvironmentObject private var injection: InjectionManager
+  @Environment(PreferencesStore.self) private var preferences
+  @Environment(InjectionManager.self) private var injection
 
   var body: some View {
     SettingsPage(
@@ -80,86 +86,58 @@ private struct InjectionSettingsView: View {
 
       Divider()
 
-      Toggle("Keep Dock renaming active", isOn: Binding(
-        get: { preferences.automaticInjectionEnabled },
-        set: {
-          if $0 {
-            // Enabling auto-inject requires consent first
-            preferences.setInjectionConsent(true)
-          } else {
-            preferences.setAutomaticInjectionEnabled(false)
-          }
-          injection.refresh(injectIfEnabled: $0)
+      Picker("Injection method", selection: Binding(
+        get: { injection.backend },
+        set: { injection.backend = $0 }
+      )) {
+        ForEach(InjectorBackend.allCases) { backend in
+          Text(backend.title).tag(backend)
         }
-      ))
-      .disabled(!isSupported)
+      }
+      .pickerStyle(.radioGroup)
+
+      Text(injection.backend.summary)
+        .font(.callout)
+        .foregroundStyle(.secondary)
+
+      Button {
+        if injection.state == .active {
+          preferences.setAutomaticInjectionEnabled(false)
+          injection.deactivate()
+        } else {
+          preferences.setInjectionConsent(true)
+          injection.injectNow()
+        }
+      } label: {
+        Text(injection.state == .active ? "Deactivate" : "Activate")
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(injection.operationInProgress)
 
       Toggle("Launch Spaces Renamer at login", isOn: Binding(
         get: { preferences.loginItemEnabled },
         set: { preferences.setLoginItemEnabled($0) }
       ))
-      .disabled(!isSupported)
 
-      if preferences.automaticInjectionEnabled && !preferences.loginItemEnabled {
-        Label(
-          "Dock renaming will not recover after restarting your Mac unless Spaces Renamer launches at login or you open it manually.",
-          systemImage: "exclamationmark.triangle.fill"
-        )
-        .font(.callout)
-        .foregroundStyle(.orange)
-      }
-
-      if let error = preferences.lastError {
-        Label(error, systemImage: "exclamationmark.triangle")
-          .font(.callout)
-          .foregroundStyle(.red)
-      }
-
-      Text("When Dock restarts, the app requests administrator approval before restoring the hook. Cancelling suppresses further automatic prompts for that Dock process; Inject Now retries manually.")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-
-      Button("Inject Now") {
-        injection.injectNow()
-      }
-      .buttonStyle(.borderedProminent)
-      .disabled(!canInject || injection.operationInProgress)
-
-      Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP. The AMFI boot argument is needed only as troubleshooting on systems where task_for_pid is still denied. Each injection triggers the standard macOS admin prompt.")
+      Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP.")
         .font(.caption)
         .foregroundStyle(.secondary)
     }
   }
 
-  private var isSupported: Bool {
-    switch injection.state {
-    case .unsupported: return false
-    default: return true
-    }
-  }
-
-  private var canInject: Bool {
-    switch injection.state {
-    case .ready, .prerequisitesMissing, .updateRequired, .authorizationCancelled, .error:
-      return true
-    case .unsupported, .injecting, .restartingDock, .loaded, .injected:
-      return false
-    }
-  }
-
   private var statusColor: Color {
     switch injection.state {
-    case .injected: return .green
+    case .active: return .green
     case .error, .unsupported: return .red
-    case .prerequisitesMissing, .updateRequired, .authorizationCancelled: return .orange
+    case .prerequisitesMissing: return .orange
     default: return .accentColor
     }
   }
 }
 
 private struct SpaceSettingsView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
-  @EnvironmentObject private var spaces: SpaceStore
+  @Environment(PreferencesStore.self) private var preferences
+  @Environment(SpaceStore.self) private var spaces
 
   var body: some View {
     SettingsPage(
@@ -195,7 +173,7 @@ private struct SpaceSettingsView: View {
                   spacing: 12
                 ) {
                   ForEach(display.spaces) { space in
-                    SpaceNameCard(space: space)
+                    SpaceCell(space: space)
                   }
                 }
               }
@@ -214,7 +192,7 @@ private struct SpaceSettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
+  @Environment(PreferencesStore.self) private var preferences
 
   var body: some View {
     SettingsPage(title: "General", subtitle: "Menu bar, startup, and installation") {
@@ -239,6 +217,17 @@ private struct GeneralSettingsView: View {
       .disabled(!preferences.showMenuBarIcon)
 
       Text("Show the Spaces Renamer symbol, the current name such as \"Code,\" or its number and name such as \"1. Code.\"")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+
+      Divider()
+
+      Toggle("Show Space change HUD", isOn: Binding(
+        get: { preferences.showSpaceChangeHUD },
+        set: { preferences.setShowSpaceChangeHUD($0) }
+      ))
+
+      Text("Briefly show the current Space's name on every display when you switch Spaces.")
         .font(.callout)
         .foregroundStyle(.secondary)
 
@@ -278,7 +267,7 @@ private struct GeneralSettingsView: View {
 }
 
 private struct ProfileSettingsView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
+  @Environment(PreferencesStore.self) private var preferences
   @State private var selectedProfileID: UUID?
   @State private var editedName = ""
 
@@ -359,7 +348,7 @@ private struct ProfileSettingsView: View {
 }
 
 private struct HotkeySettingsView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
+  @Environment(PreferencesStore.self) private var preferences
 
   var body: some View {
     SettingsPage(title: "Hotkey", subtitle: "Toggle the Spaces Renamer popover from anywhere") {
@@ -527,8 +516,8 @@ private final class HotkeyRecorderButton: NSButton {
 }
 
 private struct AutomaticNamingSettingsView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
-  @EnvironmentObject private var spaces: SpaceStore
+  @Environment(PreferencesStore.self) private var preferences
+  @Environment(SpaceStore.self) private var spaces
 
   var body: some View {
     SettingsPage(title: "Naming", subtitle: "Choose where desktop names come from") {

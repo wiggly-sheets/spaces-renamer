@@ -64,14 +64,14 @@ jobs:
 
       - name: Verify app architecture
         run: |
-          lipo -info .build/DerivedData/Build/Products/Release/SpacesRenamer.app/Contents/MacOS/SpacesRenamer
-          lipo -info .build/DerivedData/Build/Products/Release/spaces-renamer.bundle/Contents/MacOS/spaces-renamer
+          lipo -info .build/DerivedData/Build/Products/Release/spaces-renamer.dylib
+          lipo -info .build/SpacesRenamer.app/Contents/PlugIns/spaces-renamer.dylib
 
       - name: Create DMG
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ./packaging/make-dmg.sh "$VERSION" \
-            ".build/DerivedData/Build/Products/Release/SpacesRenamer.app" \
+            ".build/SpacesRenamer.app" \
             ".build/DerivedData"
 
       - name: Create GitHub Release

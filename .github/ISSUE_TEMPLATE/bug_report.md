@@ -17,4 +17,4 @@ Please paste the output of running these commands in Terminal:
 
 * `ps aux | grep -v grep | grep -i spacesrenamer`
 * `csrutil status`
-* `file injection/lib/dylinject injection/lib/spaces-renamer.dylib`
+* `file injection/lib/spaces-renamer.dylib`

@@ -1,6 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
-import Combine
+import Observation
 import ServiceManagement
 
 extension Notification.Name {
@@ -83,22 +83,26 @@ private struct StoredPreferences: Codable {
   var showMenuBarIcon: Bool?
   var menuBarDisplayMode: MenuBarDisplayMode?
   var showDuplicateApplications: Bool?
+  var showSpaceChangeHUD: Bool?
   var automaticInjectionEnabled: Bool?
   var injectionConsentGranted: Bool?
 }
 
-final class PreferencesStore: ObservableObject {
-  @Published private(set) var profiles: [SpaceProfile]
-  @Published private(set) var activeProfileID: UUID
-  @Published private(set) var namingMode: NamingMode
-  @Published private(set) var hotkey: HotkeyPreference
-  @Published private(set) var showMenuBarIcon: Bool
-  @Published private(set) var menuBarDisplayMode: MenuBarDisplayMode
-  @Published private(set) var showDuplicateApplications: Bool
-  @Published private(set) var automaticInjectionEnabled: Bool
-  @Published private(set) var injectionConsentGranted: Bool?
-  @Published private(set) var loginItemEnabled: Bool = false
-  @Published var lastError: String?
+@MainActor
+@Observable
+final class PreferencesStore {
+  private(set) var profiles: [SpaceProfile]
+  private(set) var activeProfileID: UUID
+  private(set) var namingMode: NamingMode
+  private(set) var hotkey: HotkeyPreference
+  private(set) var showMenuBarIcon: Bool
+  private(set) var menuBarDisplayMode: MenuBarDisplayMode
+  private(set) var showDuplicateApplications: Bool
+  private(set) var showSpaceChangeHUD: Bool
+  private(set) var automaticInjectionEnabled: Bool
+  private(set) var injectionConsentGranted: Bool?
+  private(set) var loginItemEnabled: Bool = false
+  var lastError: String?
 
   private let fileURL: URL
   private var lastGeneratedNames: [String: String] = [:]
@@ -125,11 +129,11 @@ final class PreferencesStore: ObservableObject {
       showMenuBarIcon = stored.showMenuBarIcon ?? true
       menuBarDisplayMode = stored.menuBarDisplayMode ?? .icon
       showDuplicateApplications = stored.showDuplicateApplications ?? false
+      showSpaceChangeHUD = stored.showSpaceChangeHUD ?? true
       automaticInjectionEnabled = stored.automaticInjectionEnabled ?? false
       injectionConsentGranted = stored.injectionConsentGranted
     } else {
-      let migratedNames = Self.loadLegacyNames()
-      let work = SpaceProfile(name: "Work", names: migratedNames)
+      let work = SpaceProfile(name: "Work")
       let home = SpaceProfile(name: "Home")
       profiles = [work, home]
       activeProfileID = work.id
@@ -138,6 +142,7 @@ final class PreferencesStore: ObservableObject {
       showMenuBarIcon = true
       menuBarDisplayMode = .icon
       showDuplicateApplications = false
+      showSpaceChangeHUD = true
       automaticInjectionEnabled = false
       injectionConsentGranted = nil
     }
@@ -225,6 +230,11 @@ final class PreferencesStore: ObservableObject {
 
   func setShowDuplicateApplications(_ enabled: Bool) {
     showDuplicateApplications = enabled
+    persistAndNotify()
+  }
+
+  func setShowSpaceChangeHUD(_ enabled: Bool) {
+    showSpaceChangeHUD = enabled
     persistAndNotify()
   }
 
@@ -387,6 +397,7 @@ final class PreferencesStore: ObservableObject {
       showMenuBarIcon: showMenuBarIcon,
       menuBarDisplayMode: menuBarDisplayMode,
       showDuplicateApplications: showDuplicateApplications,
+      showSpaceChangeHUD: showSpaceChangeHUD,
       automaticInjectionEnabled: automaticInjectionEnabled,
       injectionConsentGranted: injectionConsentGranted
     )
@@ -394,34 +405,11 @@ final class PreferencesStore: ObservableObject {
       try? data.write(to: fileURL, options: .atomic)
     }
 
-    // Compatibility contract for the injected Dock bundle.
-    var profileMappings: [String: [String: String]] = [:]
-    for profile in profiles {
-      profileMappings[profile.name, default: [:]].merge(profile.names) { _, latest in latest }
-    }
+    // Live preference-domain names for the injected Dock bundle.
     let displayedNames = namingMode != .manual
       ? activeProfile.names.merging(lastGeneratedNames) { _, generated in generated }
       : activeProfile.names
-    let legacy: NSDictionary = [
-      "spaces_renaming": displayedNames,
-      "profiles": profileMappings,
-      "active_profile": activeProfile.name,
-      "automatic_naming": namingMode != .manual,
-      "naming_mode": namingMode.rawValue
-    ]
-    try? FileManager.default.createDirectory(
-      atPath: (Utils.customNamesPlist as NSString).deletingLastPathComponent,
-      withIntermediateDirectories: true
-    )
-    legacy.write(toFile: Utils.customNamesPlist, atomically: true)
-  }
-
-  private static func loadLegacyNames() -> [String: String] {
-    guard
-      let dictionary = NSDictionary(contentsOfFile: Utils.customNamesPlist),
-      let names = dictionary["spaces_renaming"] as? [String: String]
-    else { return [:] }
-    return names
+    UserDefaults(suiteName: "com.apple.dock")?.set(displayedNames, forKey: "SpacesRenamerNames")
   }
 }
 

@@ -1,56 +1,60 @@
 #!/usr/bin/env bash
 # Embed the injection stack into the built SpacesRenamer.app bundle.
 #
-# Usage: embed-injection.sh [APP] [SOURCE_DIR]
+# Usage: embed-injection.sh [APP]
 #
-#   APP         Built SpacesRenamer.app bundle.
-#               Default: .build/DerivedData/Build/Products/Release/SpacesRenamer.app
-#   SOURCE_DIR  Injection stack directory containing run.sh and lib/.
-#               Default: <repo>/injection
+#   APP   Built SpacesRenamer.app bundle.
+#         Default: .build/DerivedData/Build/Products/Release/SpacesRenamer.app
 #
-# The stack is copied to the stable, code-signed-safe location
-# Contents/Resources/Injection. run.sh retains its sibling lib/ contract for
-# standalone recovery, while the app verifies and stages the two lib artifacts
-# into a root-owned temporary directory before elevation executes them.
+# The DYLD injector script is copied to Contents/Resources, the arm64e payload
+# to Contents/PlugIns, and the MIP bundle (assembled by `make bundle` in
+# build/) to Contents/Resources. The app is then re-signed so the embedded
+# resources are covered by its ad-hoc signature.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 APP="${1:-$ROOT/.build/DerivedData/Build/Products/Release/SpacesRenamer.app}"
-SOURCE_DIR="${2:-$ROOT/injection}"
 
 if [[ ! -d "$APP" ]]; then
   echo "error: app not found at $APP (run 'make app' first)" >&2
   exit 1
 fi
-if [[ ! -d "$SOURCE_DIR" ]]; then
-  echo "error: injection source directory not found at $SOURCE_DIR" >&2
+if [[ ! -f "$ROOT/injection/injector.sh" ]]; then
+  echo "error: injection script not found at $ROOT/injection/injector.sh" >&2
   exit 1
 fi
-if [[ ! -f "$SOURCE_DIR/run.sh" ]]; then
-  echo "error: injection script not found at $SOURCE_DIR/run.sh" >&2
+if [[ ! -f "$ROOT/injection/lib/spaces-renamer.dylib" ]]; then
+  echo "error: payload not found at $ROOT/injection/lib/spaces-renamer.dylib" >&2
   exit 1
 fi
-if [[ ! -f "$SOURCE_DIR/lib/dylinject" ]]; then
-  echo "error: injector executable not found at $SOURCE_DIR/lib/dylinject" >&2
-  exit 1
-fi
-if [[ ! -f "$SOURCE_DIR/lib/spaces-renamer.dylib" ]]; then
-  echo "error: payload not found at $SOURCE_DIR/lib/spaces-renamer.dylib" >&2
+if [[ ! -d "$ROOT/build/SpacesRenamer.mip.bundle" ]]; then
+  echo "error: MIP bundle not found at $ROOT/build/SpacesRenamer.mip.bundle (run 'make bundle' first)" >&2
   exit 1
 fi
 
-DESTINATION="$APP/Contents/Resources/Injection"
-mkdir -p "$DESTINATION/lib"
+# Remove the legacy Injection directory if a previous build left it behind.
+rm -rf "$APP/Contents/Resources/Injection"
 
-install -m 0755 "$SOURCE_DIR/run.sh" "$DESTINATION/run.sh"
-install -m 0755 "$SOURCE_DIR/lib/dylinject" "$DESTINATION/lib/dylinject"
-install -m 0755 "$SOURCE_DIR/lib/spaces-renamer.dylib" "$DESTINATION/lib/spaces-renamer.dylib"
+# DYLD injector script lives in Resources; the LaunchAgent copies it to
+# ~/Library/Application Support/SpacesRenamer so activation survives app moves.
+install -m 0755 "$ROOT/injection/injector.sh" "$APP/Contents/Resources/injector.sh"
+
+# arm64e payload for the DYLD_INSERT_LIBRARIES path.
+mkdir -p "$APP/Contents/PlugIns"
+install -m 0755 "$ROOT/injection/lib/spaces-renamer.dylib" "$APP/Contents/PlugIns/spaces-renamer.dylib"
+
+# MIP bundle (Info.plist + Contents/MacOS/SpacesRenamer) for the root/MIP path.
+rm -rf "$APP/Contents/Resources/SpacesRenamer.mip.bundle"
+cp -R "$ROOT/build/SpacesRenamer.mip.bundle" "$APP/Contents/Resources/SpacesRenamer.mip.bundle"
 
 # The app validates its running code signature before elevating. Xcode's
 # linker signature does not seal resources, so replace it after every resource
-# has been embedded. A future Developer ID build must embed first and apply its
-# distribution signature afterward instead of using this ad-hoc build path.
+# has been embedded. Embedded Mach-Os are already linker-signed (arm64e
+# requires it), so re-signing without --deep keeps them byte-identical to the
+# packaged payloads that `make verify` compares against. A future Developer ID
+# build must embed first and apply its distribution signature afterward
+# instead of using this ad-hoc build path.
 if [[ -x "$APP/Contents/MacOS/SpacesRenamer" ]]; then
   /usr/bin/codesign \
     --force \
@@ -59,4 +63,4 @@ if [[ -x "$APP/Contents/MacOS/SpacesRenamer" ]]; then
     "$APP"
 fi
 
-echo "Embedded injection stack into $DESTINATION"
+echo "Embedded injection stack into $APP"

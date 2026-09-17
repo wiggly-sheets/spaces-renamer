@@ -2,7 +2,6 @@ import AppKit
 import Carbon.HIToolbox
 import Darwin
 import ServiceManagement
-import SwiftUI
 
 /// Keeps automatic names fresh without polling. Yabai emits only when a
 /// window/Space change can affect the generated names; AppDelegate coalesces
@@ -186,36 +185,23 @@ final class GlobalHotkeyMonitor {
   }
 }
 
-@main
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  /// Manually wired `@main` entry point. Without this explicit implementation,
-  /// the compiler-synthesized `main()` may not install the delegate for
-  /// LSUIElement (.accessory) apps, causing `applicationDidFinishLaunching`
-  /// to never fire.
-  static func main() {
-    let app = NSApplication.shared
-    let delegate = AppDelegate()
-    app.delegate = delegate
-    app.run()
-  }
-
-  private let preferences = PreferencesStore()
-  private let spaces = SpaceStore()
-  private var statusItem: NSStatusItem!
-  private let popover = NSPopover()
-  private var settingsWindow: NSWindow?
+  let preferences = PreferencesStore()
+  let spaces = SpaceStore()
+  let appModel = AppModel()
   private var hotkeyMonitor: GlobalHotkeyMonitor?
   private var yabaiEventMonitor: YabaiEventMonitor?
   private var pendingAutomaticRefresh: DispatchWorkItem?
   private var automaticRefreshGeneration = 0
   private var observers: [NSObjectProtocol] = []
 
-  private var injection: InjectionManager!
+  var injection: InjectionManager!
+  private var spaceHUD: SpaceHUDController?
   private lazy var configFile = ConfigFile(preferences: preferences)
 
   // MARK: - Application Lifecycle
 
-  @MainActor
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
     ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
@@ -224,15 +210,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     installManPageSymlink()
     _ = configFile
     injection = InjectionManager()
-    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    statusItem.autosaveName = "SpacesRenamerStatusItem.v2"
-    configureStatusItem()
-    configurePopover()
     configureObservers()
     configureAutomaticNameUpdates()
     configureHotkey()
+    spaceHUD = SpaceHUDController(preferences: preferences, spaces: spaces)
     refreshSpaces()
     injection.start(preferences: preferences)
+    if !preferences.showMenuBarIcon {
+      appModel.openSettings(preferences: preferences, spaces: spaces, injection: injection)
+    }
     DispatchQueue.main.async { [weak self] in
       self?.completeStartupInjectionFlow()
     }
@@ -243,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
-    openSettings()
+    appModel.openSettings(preferences: preferences, spaces: spaces, injection: injection)
     return true
   }
 
@@ -256,9 +242,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     switch (components.count, components[safe: 0], components[safe: 1], components[safe: 2]) {
     case (1, "settings", _, _):
-      openSettings()
+      appModel.openSettings(preferences: preferences, spaces: spaces, injection: injection)
     case (1, "renamer", _, _):
-      togglePopover()
+      // MenuBarExtra cannot be opened programmatically; Settings is the only
+      // actionable destination the `sr renamer` CLI can open.
+      appModel.openSettings(preferences: preferences, spaces: spaces, injection: injection)
     case (3, "profile", "switch", let uuid):
       if let uuidStr = uuid, let id = UUID(uuidString: uuidStr) {
         preferences.activateProfile(id)
@@ -406,6 +394,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  // MARK: - Injection Consent Flow
+
   @MainActor
   private func completeStartupInjectionFlow() {
     // Moving launches a new copy from /Applications. Let that process resume
@@ -450,14 +440,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       injection.refresh()
       if let warning = injection.prerequisitesWarning {
         showInjectionSetupRequiredAlert(warning)
-      } else {
-        switch injection.state {
-        case .ready, .updateRequired, .authorizationCancelled, .error:
-          injection.injectNow()
-        default:
-          // A current payload is already loaded; do not inject it twice.
-          break
-        }
+      } else if !injection.isActive {
+        injection.injectNow()
       }
     }
   }
@@ -500,150 +484,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     alert.addButton(withTitle: "Open Injection Settings")
     alert.addButton(withTitle: "Later")
     if alert.runModal() == .alertFirstButtonReturn {
-      openSettings()
+      appModel.openSettings(preferences: preferences, spaces: spaces, injection: injection)
     }
   }
 
-  // MARK: - Status Item
+  // MARK: - Menu Bar Actions
 
-  private func configureStatusItem() {
-    statusItem.isVisible = preferences.showMenuBarIcon
-    guard let button = statusItem.button else { return }
-    button.target = self
-    button.action = #selector(statusItemPressed(_:))
-    button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-    updateStatusItemContent()
-  }
-
-  private func configurePopover() {
-    popover.behavior = .transient
-    popover.animates = true
-    popover.contentSize = NSSize(width: 560, height: 330)
-    popover.contentViewController = NSHostingController(
-      rootView: RenamerView()
-        .environmentObject(preferences)
-        .environmentObject(spaces)
-    )
-  }
-
-  private func updateStatusItemContent() {
-    guard let button = statusItem.button else { return }
-
-    switch preferences.menuBarDisplayMode {
-    case .icon:
-      button.image = NSImage(systemSymbolName: "rectangle.grid.2x2", accessibilityDescription: "Spaces Renamer")
-      button.title = ""
-      statusItem.length = NSStatusItem.squareLength
-      button.imagePosition = .imageLeft
-    case .spaceName, .spaceNumberAndName:
-      let label = currentSpaceLabel()
-      if label.isEmpty {
-        button.image = NSImage(systemSymbolName: "rectangle.grid.2x2", accessibilityDescription: "Spaces Renamer")
-        button.title = ""
-        statusItem.length = NSStatusItem.squareLength
-        button.imagePosition = .imageLeft
-      } else {
-        button.image = nil
-        button.title = label
-        statusItem.length = NSStatusItem.variableLength
-        button.imagePosition = .noImage
-      }
-    }
-    button.toolTip = "Spaces Renamer"
-  }
-
-  private func currentSpaceLabel() -> String {
-    let all = spaces.snapshot.flatMap(\.spaces)
-    guard let current = all.first(where: { $0.isCurrent }) ?? all.first else { return "" }
-    let name = preferences.name(for: current.id)
-    switch preferences.menuBarDisplayMode {
-    case .icon:
-      return ""
-    case .spaceName:
-      return name
-    case .spaceNumberAndName:
-      return "\(current.index). \(name)"
-    }
-  }
-
-  // MARK: - Actions
-
-  @MainActor
-  @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
-    guard let event = NSApp.currentEvent else { return }
-
-    if event.type == .rightMouseUp {
-      let menu = NSMenu()
-      menu.addItem(NSMenuItem(title: "Profiles", action: nil, keyEquivalent: ""))
-      for profile in preferences.profiles {
-        let item = NSMenuItem(title: profile.name, action: #selector(switchProfile(_:)), keyEquivalent: "")
-        item.state = profile.id == preferences.activeProfileID ? .on : .off
-        item.representedObject = profile.id.uuidString
-        menu.addItem(item)
-      }
-      menu.addItem(.separator())
-      menu.addItem(NSMenuItem(title: "Naming", action: nil, keyEquivalent: ""))
-      for mode in NamingMode.allCases {
-        let item = NSMenuItem(title: mode.title, action: #selector(switchNamingMode(_:)), keyEquivalent: "")
-        item.state = preferences.namingMode == mode ? .on : .off
-        item.representedObject = mode.rawValue
-        menu.addItem(item)
-      }
-      // Injection section (v1.0.0)
-      menu.addItem(.separator())
-      menu.addItem(NSMenuItem(title: "Injection", action: nil, keyEquivalent: ""))
-      let stateItem = NSMenuItem(title: injection.state.title, action: nil, keyEquivalent: "")
-      stateItem.state = .off // no rich state; we rely on detail text
-      menu.addItem(stateItem)
-      let injectItem = NSMenuItem(title: "Inject Now", action: #selector(injectFromMenu(_:)), keyEquivalent: "")
-      injectItem.representedObject = "inject"
-      injectItem.isEnabled = !injection.operationInProgress
-      menu.addItem(injectItem)
-      let reinjectItem = NSMenuItem(title: "Keep Dock Renaming Active", action: #selector(toggleAutomaticInjection(_:)), keyEquivalent: "")
-      reinjectItem.state = preferences.automaticInjectionEnabled ? .on : .off
-      reinjectItem.representedObject = "auto"
-      menu.addItem(reinjectItem)
-      menu.addItem(.separator())
-      let settingsItem = NSMenuItem(
-        title: "Settings…",
-        action: #selector(openSettings),
-        keyEquivalent: ","
-      )
-      settingsItem.target = self
-      menu.addItem(settingsItem)
-      let quitItem = NSMenuItem(
-        title: "Quit Spaces Renamer",
-        action: #selector(quitApp),
-        keyEquivalent: "q"
-      )
-      quitItem.target = self
-      menu.addItem(quitItem)
-
-      statusItem.menu = menu
-      statusItem.button?.performClick(nil)
-      statusItem.menu = nil
-      return
-    }
-
-    if popover.isShown {
-      popover.close()
-    } else {
-      popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-      popover.contentViewController?.view.window?.makeKey()
-      NSApp.activate(ignoringOtherApps: true)
-    }
-  }
-
-  @objc private func switchProfile(_ sender: NSMenuItem) {
-    guard let uuidStr = sender.representedObject as? String,
-          let id = UUID(uuidString: uuidStr) else { return }
-    preferences.activateProfile(id)
-  }
-
-  @objc private func switchNamingMode(_ sender: NSMenuItem) {
-    guard let raw = sender.representedObject as? String,
-          let mode = NamingMode(rawValue: raw) else { return }
-    preferences.setNamingMode(mode)
+  func quit() {
+    NSApp.terminate(nil)
   }
 
   @MainActor
@@ -652,61 +500,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @MainActor
-@objc private func toggleAutomaticInjection(_ sender: NSMenuItem) {
+  @objc private func toggleAutomaticInjection(_ sender: NSMenuItem) {
     if let isAuto = sender.representedObject as? String, isAuto == "auto" {
       let now = !preferences.automaticInjectionEnabled
       if now {
         // Enabling requires explicit consent
         preferences.setInjectionConsent(true)
         offerLaunchAtLoginIfNeeded(force: true)
+        injection.refresh(injectIfEnabled: true)
       } else {
         preferences.setAutomaticInjectionEnabled(false)
+        injection.deactivate()
       }
-      injection.refresh(injectIfEnabled: preferences.automaticInjectionEnabled)
-    }
-  }
-
-  @objc func openSettings() {
-    if let settingsWindow {
-      settingsWindow.makeKeyAndOrderFront(nil)
-      NSApp.activate(ignoringOtherApps: true)
-      return
-    }
-
-    let controller = NSHostingController(
-      rootView: SettingsView()
-        .environmentObject(preferences)
-        .environmentObject(spaces)
-        .environmentObject(injection)
-    )
-    let window = NSWindow(contentViewController: controller)
-    window.title = "Spaces Renamer Settings"
-    window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-    window.setContentSize(NSSize(width: 780, height: 520))
-    window.minSize = NSSize(width: 680, height: 440)
-    window.center()
-    window.isReleasedWhenClosed = false
-    settingsWindow = window
-    window.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
-  }
-
-  @objc private func quitApp() {
-    NSApp.terminate(nil)
-  }
-
-  private func togglePopover() {
-    guard preferences.showMenuBarIcon else {
-      openSettings()
-      return
-    }
-    if popover.isShown {
-      popover.close()
-    } else {
-      guard let button = statusItem.button else { return }
-      popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-      popover.contentViewController?.view.window?.makeKey()
-      NSApp.activate(ignoringOtherApps: true)
     }
   }
 
@@ -766,8 +571,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @MainActor
   private func preferencesChanged() {
-    statusItem.isVisible = preferences.showMenuBarIcon
-    updateStatusItemContent()
     configureHotkey()
     refreshSpaces()
   }
@@ -823,7 +626,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ) { [weak self] in
       guard let self else { return }
       self.preferences.applyGeneratedNames(from: self.spaces.snapshot)
-      self.updateStatusItemContent()
     }
   }
 
@@ -831,7 +633,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func configureHotkey() {
     let p = preferences.hotkey
     hotkeyMonitor = GlobalHotkeyMonitor(keyCode: p.keyCode, modifiers: p.carbonModifiers) { [weak self] in
-      DispatchQueue.main.async { self?.togglePopover() }
+      Task { @MainActor in
+        guard let self else { return }
+        self.appModel.openSettings(preferences: self.preferences, spaces: self.spaces, injection: self.injection)
+      }
     }
   }
 
@@ -840,6 +645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     pendingAutomaticRefresh?.cancel()
     yabaiEventMonitor?.stop()
+    spaceHUD?.stop()
     observers.forEach(NotificationCenter.default.removeObserver)
     injection.stop()
   }

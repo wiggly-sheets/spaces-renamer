@@ -1,8 +1,10 @@
 import SwiftUI
 
 struct RenamerView: View {
-  @EnvironmentObject private var preferences: PreferencesStore
-  @EnvironmentObject private var spaces: SpaceStore
+  @Environment(PreferencesStore.self) private var preferences
+  @Environment(SpaceStore.self) private var spaces
+  @Environment(InjectionManager.self) private var injection
+  @Environment(AppModel.self) private var appModel
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -31,7 +33,7 @@ struct RenamerView: View {
           Label("Profile", systemImage: "person.crop.rectangle.stack")
         }
         Button {
-          (NSApp.delegate as? AppDelegate)?.openSettings()
+          appModel.openSettings(preferences: preferences, spaces: spaces, injection: injection)
         } label: {
           Image(systemName: "gearshape")
         }
@@ -63,7 +65,7 @@ struct RenamerView: View {
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
                   ForEach(display.spaces) { space in
-                    SpaceNameCard(space: space)
+                    SpaceCell(space: space)
                   }
                 }
               }
@@ -87,58 +89,6 @@ struct RenamerView: View {
     case .manual: return "Rename each desktop"
     case .applications: return "Names follow open apps"
     case .yabaiLabels: return "Names follow yabai Space labels"
-    }
-  }
-}
-
-struct SpaceNameCard: View {
-  @EnvironmentObject private var preferences: PreferencesStore
-  let space: ManagedSpace
-  @State private var draft = ""
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        Label("Space \(space.index)", systemImage: space.isCurrent ? "circle.inset.filled" : "circle")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(space.isCurrent ? Color.accentColor : .secondary)
-        Spacer()
-        if let sourceDescription {
-          Text(sourceDescription)
-            .lineLimit(1)
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-        }
-      }
-      TextField("Unnamed", text: $draft)
-        .textFieldStyle(.roundedBorder)
-        .disabled(preferences.namingMode != .manual)
-        .onSubmit { preferences.setName(draft, for: space.id) }
-    }
-    .padding(10)
-    .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
-    .overlay {
-      RoundedRectangle(cornerRadius: 10)
-        .stroke(space.isCurrent ? Color.accentColor.opacity(0.7) : .clear, lineWidth: 1.5)
-    }
-    .onAppear { draft = preferences.name(for: space.id) }
-    .onChange(of: preferences.activeProfileID) { _ in draft = preferences.name(for: space.id) }
-    .onChange(of: preferences.namingMode) { _ in draft = preferences.name(for: space.id) }
-    .onDisappear {
-      if preferences.namingMode == .manual {
-        preferences.setName(draft, for: space.id)
-      }
-    }
-  }
-
-  private var sourceDescription: String? {
-    switch preferences.namingMode {
-    case .manual:
-      return nil
-    case .applications:
-      return space.appNames.isEmpty ? nil : space.appNames.prefix(2).joined(separator: ", ")
-    case .yabaiLabels:
-      return space.yabaiLabel
     }
   }
 }

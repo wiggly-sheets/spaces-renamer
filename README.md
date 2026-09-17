@@ -174,7 +174,7 @@ make universal
 | Artifact | Architectures |
 | --- | --- |
 | `SpacesRenamer.app` | `arm64`, `x86_64` |
-| `spaces-renamer.bundle` | `arm64e`, `x86_64` |
+| `spaces-renamer.dylib` | `arm64e`, `x86_64` |
 | `injection/lib/spaces-renamer.dylib` | `arm64e` |
 
 Useful targets:
@@ -194,7 +194,7 @@ The Dock hook uses private macOS APIs and runs inside the Dock process. macOS up
 To inject manually, the repository contains:
 
 ```bash
-./injection/run.sh
+./injection/injector.sh dyld on injection/lib/spaces-renamer.dylib
 ```
 
 Do not run it casually. It needs the prerequisites described above and asks for administrator authorization. The exact setup commands, including SIP and NVRAM changes, are intentionally not automated because they weaken system protections. Building the project is safe: it does not inject, alter boot arguments, change SIP, or restart Dock.
@@ -209,14 +209,9 @@ Preferences stay on your Mac:
 ~/Library/Application Support/SpacesRenamer/preferences.json
 ```
 
-For Dock compatibility, the app also publishes the active mapping to these legacy plist files:
+For Dock compatibility, the app publishes the active mapping to the `com.apple.dock` preference domain, which the injected bundle reads.
 
-```text
-~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.plist
-~/Library/Containers/com.alexbeals.spacesrenamer/com.alexbeals.spacesrenamer.currentspaces.plist
-```
-
-Existing names are migrated into the Work profile on first launch. The app does not need to upload your Space names or window labels to provide its core functionality.
+The app does not need to upload your Space names or window labels to provide its core functionality.
 
 ## License
 

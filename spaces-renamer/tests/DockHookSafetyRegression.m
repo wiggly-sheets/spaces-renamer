@@ -93,79 +93,10 @@ static void testKVOTracksDockLabelAndForwardsUnknownContexts(void) {
           @"unknown KVO contexts should be forwarded to Dock's implementation");
 }
 
-static NSDictionary *validNamesPropertyList(void) {
-  return @{ @"spaces_renaming": @{ @"space-1": @"Code" } };
-}
-
-static NSDictionary *validSpacesPropertyList(void) {
-  return @{
-    @"Monitors": @[
-      @{
-        @"Display Identifier": @"display-1",
-        @"Current Space": @{ @"uuid": @"space-1" },
-        @"Spaces": @[ @{ @"uuid": @"space-1" } ]
-      }
-    ]
-  };
-}
-
-static void requireMalformedPropertyListFailsSafe(id names, id spaces,
-                                                  NSString *scenario) {
-  @try {
-    require(monitorNamesFromPropertyLists(names, spaces).count == 0, scenario);
-  } @catch (id exception) {
-    require(NO, [NSString stringWithFormat:@"%@ threw %@", scenario, exception]);
-  }
-}
-
-static void testPropertyListValidation(void) {
-  NSArray<Monitor *> *monitors = monitorNamesFromPropertyLists(
-    validNamesPropertyList(),
-    validSpacesPropertyList()
-  );
-  require(monitors.count == 1, @"a valid monitor should be parsed");
-  require([monitors[0].spaces[0][@"name"] isEqual:@"Code"],
-          @"a valid Space name should be preserved");
-
-  requireMalformedPropertyListFailsSafe(
-    @{ @"spaces_renaming": @[] },
-    validSpacesPropertyList(),
-    @"an array in place of the names dictionary should fail safe"
-  );
-  requireMalformedPropertyListFailsSafe(
-    validNamesPropertyList(),
-    @{ @"Monitors": [NSNull null] },
-    @"NSNull in place of the monitor array should fail safe"
-  );
-  requireMalformedPropertyListFailsSafe(
-    validNamesPropertyList(),
-    @{ @"Monitors": @[ @[] ] },
-    @"an array in place of a monitor dictionary should fail safe"
-  );
-  requireMalformedPropertyListFailsSafe(
-    validNamesPropertyList(),
-    @{
-      @"Monitors": @[
-        @{
-          @"Current Space": @{ @"uuid": @"space-1" },
-          @"Spaces": @[ [NSNull null] ]
-        }
-      ]
-    },
-    @"NSNull in place of a Space dictionary should fail safe"
-  );
-  requireMalformedPropertyListFailsSafe(
-    @{ @"spaces_renaming": @{ @"space-1": @42 } },
-    validSpacesPropertyList(),
-    @"a non-string Space name should fail safe"
-  );
-}
-
 int main(void) {
   @autoreleasepool {
     testRemovingNameRestoresDefaultLabel();
     testKVOTracksDockLabelAndForwardsUnknownContexts();
-    testPropertyListValidation();
     NSLog(@"PASS: Dock hook safety regressions");
   }
   return 0;
