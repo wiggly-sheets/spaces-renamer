@@ -16,7 +16,12 @@ let package = Package(
       path: ".",
       // Sources are Swift 5 mode under the Xcode project (SWIFT_VERSION 5.0);
       // keep the same language mode here until the 3b migration.
-      exclude: ["CGSPrivate", "Assets.xcassets", "Info.plist", "SpacesRenamer.entitlements", "SpacesRenamerBridge.h"],
+      exclude: ["CGSPrivate", "Assets.xcassets", "Info.plist", "SpacesRenamer.entitlements", "SpacesRenamerBridge.h", "Tests"],
+      swiftSettings: [.swiftLanguageMode(.v5)]
+    ),
+    .testTarget(
+      name: "SpacesRenamerTests",
+      dependencies: ["SpacesRenamer"],
       swiftSettings: [.swiftLanguageMode(.v5)]
     ),
   ]

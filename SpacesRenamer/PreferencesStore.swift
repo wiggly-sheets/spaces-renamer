@@ -105,13 +105,24 @@ final class PreferencesStore {
   var lastError: String?
 
   private let fileURL: URL
+  private let publishesToDockDomain: Bool
   private var lastGeneratedNames: [String: String] = [:]
 
-  init() {
+  convenience init() {
     let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("SpacesRenamer", isDirectory: true)
     try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-    fileURL = support.appendingPathComponent("preferences.json")
+    self.init(
+      fileURL: support.appendingPathComponent("preferences.json"),
+      publishesToDockDomain: true
+    )
+  }
+
+  /// Test seam: points persistence at `fileURL` and skips publishing names
+  /// into the live `com.apple.dock` preference domain.
+  init(fileURL: URL, publishesToDockDomain: Bool) {
+    self.fileURL = fileURL
+    self.publishesToDockDomain = publishesToDockDomain
 
     if
       let data = try? Data(contentsOf: fileURL),
@@ -277,6 +288,31 @@ final class PreferencesStore {
     persistAndNotify()
   }
 
+  /// Pure formatting: maps a Space snapshot to generated names for the given
+  /// naming mode. Manual returns nothing; generated names are never written
+  /// for manual mode (callers must consult `name(for:)` instead).
+  nonisolated static func generatedNames(
+    from snapshot: [DisplaySpaces],
+    namingMode: NamingMode
+  ) -> [String: String] {
+    var generated: [String: String] = [:]
+    for space in snapshot.flatMap(\.spaces) {
+      let generatedName: String
+      switch namingMode {
+      case .manual:
+        continue
+      case .applications:
+        guard !space.appNames.isEmpty else { continue }
+        generatedName = space.appNames.prefix(3).joined(separator: " · ")
+      case .yabaiLabels:
+        guard let label = space.yabaiLabel, !label.isEmpty else { continue }
+        generatedName = label
+      }
+      generated[space.id] = generatedName
+    }
+    return generated
+  }
+
   func updateHotkey(_ newValue: HotkeyPreference) {
     hotkey = newValue
     persistAndNotify()
@@ -406,10 +442,12 @@ final class PreferencesStore {
     }
 
     // Live preference-domain names for the injected Dock bundle.
-    let displayedNames = namingMode != .manual
-      ? activeProfile.names.merging(lastGeneratedNames) { _, generated in generated }
-      : activeProfile.names
-    UserDefaults(suiteName: "com.apple.dock")?.set(displayedNames, forKey: "SpacesRenamerNames")
+    if publishesToDockDomain {
+      let displayedNames = namingMode != .manual
+        ? activeProfile.names.merging(lastGeneratedNames) { _, generated in generated }
+        : activeProfile.names
+      UserDefaults(suiteName: "com.apple.dock")?.set(displayedNames, forKey: "SpacesRenamerNames")
+    }
   }
 }
 

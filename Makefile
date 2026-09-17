@@ -113,6 +113,7 @@ test:
 	./scripts/tests/test_yabai_client.sh
 	./scripts/tests/test_preference_config_policies.sh
 	./scripts/tests/test_replacing_file_watcher.sh
+	swift test --package-path SpacesRenamer
 
 clean:
 	xcodebuild -project $(PROJECT) -scheme spaces-renamer clean

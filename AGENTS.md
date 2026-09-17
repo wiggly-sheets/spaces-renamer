@@ -362,7 +362,7 @@ Use a bundle-originated handshake when app-managed injection is implemented.
 
 In priority order:
 
-- [ ] Finalize GitHub Releases workflow and Homebrew tap test
+- [x] Finalize GitHub Releases workflow and Homebrew tap test
   - Fix the artifact-name mismatch (`SpacesRenamer-{tag}.app.zip` vs the
     cask's `SpacesRenamer-v{version}.zip`).
   - Auto-bump the cask in the release workflow: update
@@ -375,7 +375,7 @@ In priority order:
   - Release notes extracted from `CHANGELOG.md`; generic fallback; never fail
     the release over missing changelog text.
   - `--prerelease` only for prerelease tags (tag contains `-`).
-- [ ] Create DMG with `create-dmg` (custom background/instructions) instead of zip for GitHub Release / Homebrew
+- [x] Create DMG with `create-dmg` (custom background/instructions) instead of zip for GitHub Release / Homebrew
   - DMG-only: ship `SpacesRenamer-v{version}.dmg` + `.sha256`; cask URL points
     at the `.dmg`; zip removed from Releases.
   - Add `packaging/` with the create-dmg invocation and a placeholder

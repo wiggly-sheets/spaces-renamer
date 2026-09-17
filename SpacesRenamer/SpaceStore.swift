@@ -20,6 +20,50 @@ struct DisplaySpaces: Identifiable, Hashable {
   let spaces: [ManagedSpace]
 }
 
+private struct YabaiWindow: Decodable {
+  struct Frame: Decodable {
+    let x: Double
+    let y: Double
+    let w: Double
+    let h: Double
+  }
+
+  let id: Int
+  let app: String
+  let space: Int
+  let frame: Frame
+  let isHidden: Bool
+  let isMinimized: Bool
+  let role: String?
+  let subrole: String?
+  let isRootWindow: Bool?
+
+  enum CodingKeys: String, CodingKey {
+    case id, app, space, frame, role, subrole
+    case isHidden = "is-hidden"
+    case isMinimized = "is-minimized"
+    case isRootWindow = "root-window"
+  }
+
+  var isStandardUserWindow: Bool {
+    guard
+      !isHidden,
+      !isMinimized,
+      id > 0,
+      !app.isEmpty,
+      space > 0,
+      frame.w > 0,
+      frame.h > 0
+    else { return false }
+
+    // Keep this aligned with Spacemap. `is-visible` is intentionally not
+    // consulted because real windows on inactive Spaces report false.
+    return role == "AXWindow"
+      && subrole == "AXStandardWindow"
+      && isRootWindow != false
+  }
+}
+
 @MainActor
 @Observable
 final class SpaceStore {
@@ -137,49 +181,6 @@ final class SpaceStore {
       let index: Int
       let label: String?
     }
-    struct YabaiWindow: Decodable {
-      struct Frame: Decodable {
-        let x: Double
-        let y: Double
-        let w: Double
-        let h: Double
-      }
-
-      let id: Int
-      let app: String
-      let space: Int
-      let frame: Frame
-      let isHidden: Bool
-      let isMinimized: Bool
-      let role: String?
-      let subrole: String?
-      let isRootWindow: Bool?
-
-      enum CodingKeys: String, CodingKey {
-        case id, app, space, frame, role, subrole
-        case isHidden = "is-hidden"
-        case isMinimized = "is-minimized"
-        case isRootWindow = "root-window"
-      }
-
-      var isStandardUserWindow: Bool {
-        guard
-          !isHidden,
-          !isMinimized,
-          id > 0,
-          !app.isEmpty,
-          space > 0,
-          frame.w > 0,
-          frame.h > 0
-        else { return false }
-
-        // Keep this aligned with Spacemap. `is-visible` is intentionally not
-        // consulted because real windows on inactive Spaces report false.
-        return role == "AXWindow"
-          && subrole == "AXStandardWindow"
-          && isRootWindow != false
-      }
-    }
 
     guard
       let spacesData = runYabaiQuery(["-m", "query", "--spaces"]),
@@ -199,12 +200,35 @@ final class SpaceStore {
       )
     }
     guard
-      let windowsData = runYabaiQuery(["-m", "query", "--windows"]),
-      let windows = try? JSONDecoder().decode([YabaiWindow].self, from: windowsData)
+      let windowsData = runYabaiQuery(["-m", "query", "--windows"])
     else { return nil }
 
     var managedIDByIndex: [Int: Int] = [:]
     for space in spaces { managedIDByIndex[space.index] = space.id }
+    guard let applicationsByWorkspace = applicationsByManagedSpace(
+      windowsJSON: windowsData,
+      spaceIndexToID: managedIDByIndex,
+      showDuplicateApplications: showDuplicateApplications
+    ) else { return nil }
+    return YabaiNamingData(
+      applicationsByWorkspace: applicationsByWorkspace,
+      labelsByWorkspace: labelsByWorkspace
+    )
+  }
+
+  /// Pure real-window filter over a yabai `--windows` JSON payload, returning
+  /// application names grouped by yabai Space id, ordered left-to-right then
+  /// top-to-bottom. Returns nil when the payload does not decode (which the
+  /// caller treats as a failed yabai query).
+  nonisolated static func applicationsByManagedSpace(
+    windowsJSON: Data,
+    spaceIndexToID: [Int: Int],
+    showDuplicateApplications: Bool
+  ) -> [Int: [String]]? {
+    guard let windows = try? JSONDecoder().decode([YabaiWindow].self, from: windowsJSON) else {
+      return nil
+    }
+
     var result: [Int: [String]] = [:]
     let spatiallyOrderedWindows = windows.sorted { left, right in
       if left.space != right.space { return left.space < right.space }
@@ -215,7 +239,7 @@ final class SpaceStore {
     for window in spatiallyOrderedWindows {
       guard
         window.isStandardUserWindow,
-        let managedID = managedIDByIndex[window.space],
+        let managedID = spaceIndexToID[window.space],
         window.app != "Dock",
         window.app != "Spaces Renamer"
       else { continue }
@@ -225,10 +249,7 @@ final class SpaceStore {
         appendUnique(window.app, to: managedID, in: &result)
       }
     }
-    return YabaiNamingData(
-      applicationsByWorkspace: result,
-      labelsByWorkspace: labelsByWorkspace
-    )
+    return result
   }
 
   nonisolated private static func runYabaiQuery(_ arguments: [String]) -> Data? {

@@ -128,12 +128,31 @@ else
   echo "ok - version with slash exits non-zero"
 fi
 
-# 7. The committed background matches a fresh deterministic render, so the
-#    artwork can never silently drift from the script that produces it.
-swift "$ROOT/packaging/render-background.swift" "$TMP/background.png" >/dev/null
-assert_eq "committed background matches fresh render" \
-  "$(shasum -a 256 "$ROOT/packaging/background.png" | cut -d' ' -f1)" \
-  "$(shasum -a 256 "$TMP/background.png" | cut -d' ' -f1)"
+# 7. The committed background is a valid 1600x900 PNG and the renderer still
+#    runs and produces a same-sized PNG. Byte-exact comparison is skipped:
+#    AppKit rasterization is not pixel-deterministic across OS versions.
+png_dims() {
+  sips -g pixelWidth -g pixelHeight "$1" 2>/dev/null \
+    | awk '/pixelWidth/ {w=$2} /pixelHeight/ {h=$2} END {print w "x" h}'
+}
+
+assert_eq "committed background is a valid PNG" \
+  "yes" \
+  "$(file -b "$ROOT/packaging/background.png" | grep -q "PNG image data" && echo yes || echo no)"
+assert_eq "committed background is 1600x900" \
+  "1600x900" \
+  "$(png_dims "$ROOT/packaging/background.png")"
+
+if ! swift "$ROOT/packaging/render-background.swift" "$TMP/background.png" >/dev/null; then
+  fail=$((fail + 1))
+  echo "FAIL - renderer runs successfully"
+else
+  pass=$((pass + 1))
+  echo "ok - renderer runs successfully"
+fi
+assert_eq "fresh render is a valid 1600x900 PNG" \
+  "1600x900" \
+  "$(png_dims "$TMP/background.png")"
 
 echo
 echo "${pass} passed, ${fail} failed"
