@@ -105,7 +105,8 @@ private struct PopoverContent: View {
             // Enabling a managed auto-reinject loop requires explicit consent.
             preferences.setInjectionConsent(true)
           } else {
-            preferences.setAutomaticInjectionEnabled(false)
+            preferences.setInjectionConsent(false)
+            injection.deactivate()
           }
         }
       ))

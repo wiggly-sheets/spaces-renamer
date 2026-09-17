@@ -416,7 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard preferences.injectionConsentGranted == nil else { return }
     let alert = NSAlert()
     alert.messageText = "Enable Dock renaming?"
-    alert.informativeText = "Spaces Renamer injects its bundled hook into Dock to rename Spaces in Mission Control. macOS requests administrator approval for the first injection and again after each Dock or computer restart."
+    alert.informativeText = "Spaces Renamer injects its bundled hook into Dock to rename Spaces in Mission Control. Your choice persists: renaming is re-applied automatically after Dock or WindowManager restarts and at login. Administrator approval is requested only for the managed injection mode or boot-argument changes."
     alert.addButton(withTitle: "Enable and Inject")
     alert.addButton(withTitle: "Not Now")
 
@@ -447,10 +447,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @MainActor
-  private func offerLaunchAtLoginIfNeeded(force: Bool = false) {
+  private func offerLaunchAtLoginIfNeeded() {
     guard preferences.automaticInjectionEnabled, !preferences.loginItemEnabled else { return }
     let defaultsKey = "offeredLaunchAtLoginForInjection"
-    guard force || !UserDefaults.standard.bool(forKey: defaultsKey) else { return }
+    guard !UserDefaults.standard.bool(forKey: defaultsKey) else { return }
     UserDefaults.standard.set(true, forKey: defaultsKey)
 
     let alert = NSAlert()
@@ -492,27 +492,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func quit() {
     NSApp.terminate(nil)
-  }
-
-  @MainActor
-  @objc private func injectFromMenu(_ sender: NSMenuItem) {
-    injection.injectNow()
-  }
-
-  @MainActor
-  @objc private func toggleAutomaticInjection(_ sender: NSMenuItem) {
-    if let isAuto = sender.representedObject as? String, isAuto == "auto" {
-      let now = !preferences.automaticInjectionEnabled
-      if now {
-        // Enabling requires explicit consent
-        preferences.setInjectionConsent(true)
-        offerLaunchAtLoginIfNeeded(force: true)
-        injection.refresh(injectIfEnabled: true)
-      } else {
-        preferences.setAutomaticInjectionEnabled(false)
-        injection.deactivate()
-      }
-    }
   }
 
   // MARK: - Notifications

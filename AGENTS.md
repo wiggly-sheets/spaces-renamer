@@ -266,7 +266,8 @@ The repository pipeline is:
 2. `injection/injector.sh` decides DYLD vs MIP: it validates Apple silicon and
    required NVRAM boot arguments, then sets up `DYLD_INSERT_LIBRARIES` via a
    per-user LaunchAgent or registers the MIP bundle.
-3. Dock loads `spaces-renamer.dylib` on the next Dock restart.
+3. The host (WindowManager on macOS 27+, Dock on earlier releases) loads
+   `spaces-renamer.dylib` on its next restart.
 
 Embedded into the app bundle at build time:
 
@@ -381,16 +382,16 @@ In priority order:
   - Add `packaging/` with the create-dmg invocation and a placeholder
     background (plain white/grey, "Drag into Applications" instructions baked
     in); add a `make dmg` target.
-- [x] Add app-managed injection for all-in-one workflow (largely done — Phase 1
-  implemented the DYLD/MIP stack, `InjectionManager` UI/state, and the Dock
-  handshake; the remaining work is the app-managed elevation +
-  auto-inject-on-Dock-restart workflow. See `docs/port-plan-dyld-mip.md`.)
+- [x] Add app-managed injection for all-in-one workflow (done — the DYLD/MIP
+  stack, `InjectionManager` UI/state, consent + auto-inject at login and on
+  host restart, and the Dock health handshake are all implemented. See
+  `docs/port-plan-dyld-mip.md`.)
   - Implementation branch: `feat/app-managed-injection` (was
     `codex/app-managed-injection`). Design in the App-Managed Injection section
     above and `docs/adr/0001-app-managed-injection-elevation.md`. The XPC
     helper from the branch's first pass is cut; `InjectionManager` UI/state and
     the Dock handshake are reused.
-- [ ] Clean up and remove all redundant branches
+- [x] Clean up and remove all redundant branches
   - Delete `feature/config-file` (local; work already on master), and
     `feature/releases-docs` (local + remote; commits already on master).
   - Keep `feat/app-managed-injection` as the item-3 working branch.

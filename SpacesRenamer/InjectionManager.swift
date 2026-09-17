@@ -121,7 +121,7 @@ final class InjectionManager {
       guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
             let bundleID = app.bundleIdentifier,
             bundleID == "com.apple.dock" || bundleID == "com.apple.WindowManager" else { return }
-      Task { @MainActor in self?.refresh() }
+      Task { @MainActor in self?.refresh(injectIfEnabled: true) }
     })
   }
 
