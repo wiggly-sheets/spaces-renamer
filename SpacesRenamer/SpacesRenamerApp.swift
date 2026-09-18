@@ -19,6 +19,12 @@ struct SpacesRenamerApp: App {
       menuBarLabel
     }
     .menuBarExtraStyle(.window)
+    // Scene-root injection: every system-driven instantiation of this scene's
+    // content (hotkey, deeplink, menu-bar navigation) inherits these objects.
+    .environment(appDelegate.preferences)
+    .environment(appDelegate.spaces)
+    .environment(appDelegate.injection)
+    .environment(appDelegate.appModel)
   }
 
   @ViewBuilder
@@ -62,48 +68,62 @@ private struct PopoverContent: View {
   }
 
   private var footer: some View {
-    HStack(spacing: 10) {
-      Menu {
-        ForEach(NamingMode.allCases) { mode in
-          Button {
-            preferences.setNamingMode(mode)
-          } label: {
-            if mode == preferences.namingMode {
-              Label(mode.title, systemImage: "checkmark")
-            } else {
-              Text(mode.title)
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 10) {
+        Menu {
+          ForEach(NamingMode.allCases) { mode in
+            Button {
+              preferences.setNamingMode(mode)
+            } label: {
+              if mode == preferences.namingMode {
+                Label(mode.title, systemImage: "checkmark")
+              } else {
+                Text(mode.title)
+              }
             }
           }
+        } label: {
+          Label(preferences.namingMode.title, systemImage: "wand.and.stars")
         }
-      } label: {
-        Label("Naming", systemImage: "wand.and.stars")
-      }
-      .help("Naming mode")
+        .help("Naming mode")
 
-      Spacer()
+        Spacer()
 
-      Label(injection.state.title, systemImage: injection.state.symbol)
-        .foregroundStyle(injectionTint)
-        .help(injection.state.detail)
+        Label(injection.state.title, systemImage: injection.state.symbol)
+          .foregroundStyle(injectionTint)
+          .help(injection.state.detail)
 
-      Button {
-        if injection.state == .active {
-          preferences.setAutomaticInjectionEnabled(false)
-          injection.deactivate()
-        } else {
-          injection.injectNow()
+        Button {
+          if injection.state == .active {
+            preferences.setAutomaticInjectionEnabled(false)
+            injection.deactivate()
+          } else {
+            injection.injectNow()
+          }
+        } label: {
+          Text(injection.state == .active ? "Deactivate" : "Inject Now")
         }
-      } label: {
-        Text(injection.state == .active ? "Deactivate" : "Inject Now")
+        .disabled(injection.operationInProgress)
+
+        Button {
+          appDelegate.quit()
+        } label: {
+          Image(systemName: "power")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help("Quit")
+        .keyboardShortcut("q", modifiers: .command)
       }
-      .disabled(injection.operationInProgress)
 
       Toggle("Keep Dock Renaming Active", isOn: Binding(
         get: { preferences.automaticInjectionEnabled },
         set: { enabled in
           if enabled {
-            // Enabling a managed auto-reinject loop requires explicit consent.
             preferences.setInjectionConsent(true)
+            if injection.state != .active {
+              injection.injectNow()
+            }
           } else {
             preferences.setInjectionConsent(false)
             injection.deactivate()
@@ -111,10 +131,6 @@ private struct PopoverContent: View {
         }
       ))
       .toggleStyle(.switch)
-
-      Button("Quit") {
-        appDelegate.quit()
-      }
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 10)

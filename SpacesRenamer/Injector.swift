@@ -268,8 +268,8 @@ final class ActivationModel {
   /// Renaming is active if the plugin is loaded, however it got there, or an injector we manage is on.
   var isActive: Bool { pluginIsLive || state.active != .none }
 
-  func refresh() {
-    Task { await reload() }
+  func refresh(completion: (() -> Void)? = nil) {
+    Task { await reload(); completion?() }
   }
 
   func activate() {

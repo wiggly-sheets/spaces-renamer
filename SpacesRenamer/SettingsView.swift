@@ -333,7 +333,7 @@ private struct ProfileSettingsView: View {
       selectedProfileID = preferences.activeProfileID
       updateDraftName()
     }
-    .onChange(of: selectedProfileID) { _ in updateDraftName() }
+    .onChange(of: selectedProfileID) { _, _ in updateDraftName() }
   }
 
   private func updateDraftName() {

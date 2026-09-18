@@ -9,7 +9,7 @@ BUILD ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 SWIFT_BUILD := swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64
 SPM_BIN := $(shell $(SWIFT_BUILD) --show-bin-path)/SpacesRenamer
 
-.PHONY: app plugin bundle package-injection universal dmg background man verify inject clean test
+.PHONY: app app-tahoe app-gg plugin bundle package-injection universal dmg background man verify inject clean test
 
 app: bundle man
 	$(SWIFT_BUILD)
@@ -40,6 +40,52 @@ app: bundle man
 	mkdir -p "$(APP)/Contents/Resources/man/man1"
 	cp "$(MANPAGE)" "$(APP)/Contents/Resources/man/man1/sr.1"
 	# Bundle injection stack into app resources.
+	./scripts/embed-injection.sh "$(APP)"
+
+# Universal build for macOS 26 (Tahoe) — runs on both Intel and Apple Silicon.
+app-tahoe: bundle man
+	swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64
+	rm -rf "$(APP)"
+	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
+	cp "$(shell swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64 --show-bin-path)/SpacesRenamer" "$(APP)/Contents/MacOS/SpacesRenamer"
+	sed -e 's/\$$(MARKETING_VERSION)/$(VERSION)/' \
+	    -e 's/\$$(MACOSX_DEPLOYMENT_TARGET)/14.0/' \
+	    -e 's/\$$(PRODUCT_BUNDLE_IDENTIFIER)/com.wiggly-sheets.SpacesRenamer/' \
+	    -e 's/\$$(EXECUTABLE_NAME)/SpacesRenamer/' \
+	    -e 's/\$$(PRODUCT_NAME)/SpacesRenamer/' \
+	    -e 's/\$$(DEVELOPMENT_LANGUAGE)/English/' \
+	    SpacesRenamer/Info.plist > "$(APP)/Contents/Info.plist"
+	xcrun actool SpacesRenamer/Assets.xcassets --compile "$(APP)/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 --app-icon AppIcon --output-partial-info-plist .build/AssetsPartial.plist
+	/usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile AppIcon' -c 'Add :CFBundleIconName string AppIcon' "$(APP)/Contents/Info.plist"
+	printf 'APPL????' > "$(APP)/Contents/PkgInfo"
+	codesign --force --sign - --entitlements SpacesRenamer/SpacesRenamer.entitlements "$(APP)"
+	cp cli/sr "$(APP)/Contents/Resources/sr"
+	chmod 0755 "$(APP)/Contents/Resources/sr"
+	mkdir -p "$(APP)/Contents/Resources/man/man1"
+	cp "$(MANPAGE)" "$(APP)/Contents/Resources/man/man1/sr.1"
+	./scripts/embed-injection.sh "$(APP)"
+
+# arm64-only build for macOS 27+ (Golden Gate) — Apple Silicon only.
+app-gg: bundle man
+	swift build --package-path SpacesRenamer -c release --arch arm64
+	rm -rf "$(APP)"
+	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
+	cp "$(shell swift build --package-path SpacesRenamer -c release --arch arm64 --show-bin-path)/SpacesRenamer" "$(APP)/Contents/MacOS/SpacesRenamer"
+	sed -e 's/\$$(MARKETING_VERSION)/$(VERSION)/' \
+	    -e 's/\$$(MACOSX_DEPLOYMENT_TARGET)/27.0/' \
+	    -e 's/\$$(PRODUCT_BUNDLE_IDENTIFIER)/com.wiggly-sheets.SpacesRenamer/' \
+	    -e 's/\$$(EXECUTABLE_NAME)/SpacesRenamer/' \
+	    -e 's/\$$(PRODUCT_NAME)/SpacesRenamer/' \
+	    -e 's/\$$(DEVELOPMENT_LANGUAGE)/English/' \
+	    SpacesRenamer/Info.plist > "$(APP)/Contents/Info.plist"
+	xcrun actool SpacesRenamer/Assets.xcassets --compile "$(APP)/Contents/Resources" --platform macosx --minimum-deployment-target 27.0 --app-icon AppIcon --output-partial-info-plist .build/AssetsPartial.plist
+	/usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile AppIcon' -c 'Add :CFBundleIconName string AppIcon' "$(APP)/Contents/Info.plist"
+	printf 'APPL????' > "$(APP)/Contents/PkgInfo"
+	codesign --force --sign - --entitlements SpacesRenamer/SpacesRenamer.entitlements "$(APP)"
+	cp cli/sr "$(APP)/Contents/Resources/sr"
+	chmod 0755 "$(APP)/Contents/Resources/sr"
+	mkdir -p "$(APP)/Contents/Resources/man/man1"
+	cp "$(MANPAGE)" "$(APP)/Contents/Resources/man/man1/sr.1"
 	./scripts/embed-injection.sh "$(APP)"
 
 plugin:

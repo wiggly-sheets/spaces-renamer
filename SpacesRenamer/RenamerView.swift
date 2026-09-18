@@ -10,15 +10,13 @@ struct RenamerView: View {
     VStack(alignment: .leading, spacing: 14) {
       HStack {
         VStack(alignment: .leading, spacing: 2) {
-          Text(preferences.activeProfile.name)
-            .font(.headline)
           Text(namingModeSubtitle)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
         Spacer()
         Menu {
-          ForEach(preferences.profiles) { profile in
+          ForEach(Array(preferences.profiles.enumerated()), id: \.element.id) { index, profile in
             Button {
               preferences.activateProfile(profile.id)
             } label: {
@@ -28,17 +26,22 @@ struct RenamerView: View {
                 Text(profile.name)
               }
             }
+            .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
           }
         } label: {
-          Label("Profile", systemImage: "person.crop.rectangle.stack")
+          Label(preferences.activeProfile.name, systemImage: "person.crop.rectangle.stack")
+            .lineLimit(1)
+            .frame(maxWidth: 200)
         }
         Button {
           appModel.openSettings(preferences: preferences, spaces: spaces, injection: injection)
         } label: {
           Image(systemName: "gearshape")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
         .help("Settings")
+        .keyboardShortcut(",", modifiers: .command)
       }
 
       if let error = spaces.errorMessage {
@@ -54,19 +57,17 @@ struct RenamerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        ScrollView {
-          VStack(alignment: .leading, spacing: 16) {
-            ForEach(spaces.snapshot) { display in
-              VStack(alignment: .leading, spacing: 8) {
-                if spaces.snapshot.count > 1 {
-                  Text(display.name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                  ForEach(display.spaces) { space in
-                    SpaceCell(space: space)
-                  }
+        VStack(alignment: .leading, spacing: 16) {
+          ForEach(spaces.snapshot) { display in
+            VStack(alignment: .leading, spacing: 8) {
+              if spaces.snapshot.count > 1 {
+                Text(display.name)
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.secondary)
+              }
+              LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 10)], spacing: 10) {
+                ForEach(display.spaces) { space in
+                  SpaceCell(space: space)
                 }
               }
             }
@@ -75,7 +76,7 @@ struct RenamerView: View {
       }
     }
     .padding(16)
-    .frame(minWidth: 520, minHeight: 280)
+    .frame(minWidth: 500)
     .onAppear {
       spaces.refresh(
         for: preferences.namingMode,

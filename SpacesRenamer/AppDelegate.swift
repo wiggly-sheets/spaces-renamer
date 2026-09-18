@@ -196,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var automaticRefreshGeneration = 0
   private var observers: [NSObjectProtocol] = []
 
-  var injection: InjectionManager!
+  let injection = InjectionManager()
   private var spaceHUD: SpaceHUDController?
   private lazy var configFile = ConfigFile(preferences: preferences)
 
@@ -209,7 +209,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     installCLISymlink()
     installManPageSymlink()
     _ = configFile
-    injection = InjectionManager()
     configureObservers()
     configureAutomaticNameUpdates()
     configureHotkey()
@@ -282,10 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let destination = statusReplyDestination(for: requestURL) else { return }
     do {
       let data = try JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
-      let options: Data.WritingOptions = destination.isRequestScoped
-        ? [.atomic, .withoutOverwriting]
-        : .atomic
-      try data.write(to: destination.url, options: options)
+      try data.write(to: destination.url, options: .atomic)
     } catch {
       NSLog("Failed to write status JSON: \(error.localizedDescription)")
     }
@@ -293,15 +289,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private struct StatusReplyDestination {
     let url: URL
-    let isRequestScoped: Bool
   }
 
   private func statusReplyDestination(for requestURL: URL) -> StatusReplyDestination? {
     let replyValues = requestURL.queryValues(named: "reply")
     guard !replyValues.isEmpty else {
       return StatusReplyDestination(
-        url: URL(fileURLWithPath: "/tmp/spaces-renamer-status-\(getuid()).json"),
-        isRequestScoped: false
+        url: URL(fileURLWithPath: "/tmp/spaces-renamer-status-\(getuid()).json")
       )
     }
     guard replyValues.count == 1,
@@ -309,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       NSLog("Rejected invalid or ambiguous CLI reply path.")
       return nil
     }
-    return StatusReplyDestination(url: destination, isRequestScoped: true)
+    return StatusReplyDestination(url: destination)
   }
 
   // MARK: - CLI Symlink

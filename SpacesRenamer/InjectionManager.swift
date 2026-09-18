@@ -79,9 +79,14 @@ final class InjectionManager {
   func refresh(injectIfEnabled: Bool = false) {
     updatePrerequisitesWarning()
     recomputeState()
-    activation.refresh()
-    if injectIfEnabled, preferences?.injectionConsentGranted == true, !isActive {
-      injectNow()
+    // Decide only after the fresh status lands: activate()'s reload is async, so
+    // a synchronous !isActive check here would see stale pre-reload state and
+    // re-inject at launch even when the plugin is already live.
+    activation.refresh { [weak self] in
+      guard let self else { return }
+      if injectIfEnabled, preferences?.injectionConsentGranted == true, !isActive {
+        injectNow()
+      }
     }
   }
 

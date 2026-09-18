@@ -54,6 +54,13 @@ restart_host() {
   log "restarted $host"
 }
 
+# Active when the LaunchAgent is installed and the variable already names the
+# stored payload — the state `dyld boot` produces, i.e. the host has restarted
+# into the library. Shared by `status` and the `dyld on` idempotency guard.
+dyld_is_active() {
+  [ -f "$AGENT_PLIST" ] && [ "${1:-}" = "$DYLIB_STORE" ]
+}
+
 # ---------------------------------------------------------------------------- dyld
 
 write_agent_plist() {
@@ -86,6 +93,12 @@ dyld_on() {
   [ -n "$dylib" ] || die "dyld on: missing <dylib> path"
   [ -f "$dylib" ] || die "dyld on: no dylib at $dylib"
   dylib=$(cd "$(dirname "$dylib")" && printf '%s/%s' "$(pwd)" "$(basename "$dylib")")
+
+  env_val=$(launchctl getenv "$DYLD_VAR" 2>/dev/null || true)
+  if dyld_is_active "$env_val"; then
+    log "dyld already active"
+    return 0
+  fi
 
   /bin/mkdir -p "$SUPPORT"
   /bin/cp "$dylib" "$DYLIB_STORE"
@@ -179,7 +192,7 @@ status() {
   env_val=$(launchctl getenv "$DYLD_VAR" 2>/dev/null || true)
   if [ -f "$AGENT_PLIST" ]; then echo "dyld_agent=present"; else echo "dyld_agent=absent"; fi
   if [ -n "$env_val" ]; then echo "dyld_env=set"; else echo "dyld_env=unset"; fi
-  if [ -f "$AGENT_PLIST" ] && [ -n "$env_val" ]; then dyld=on; else dyld=off; fi
+  if dyld_is_active "$env_val"; then dyld=on; else dyld=off; fi
   echo "dyld=$dyld"
 
   if [ -d "$MIP_ROOT" ]; then echo "mip_installed=yes"; else echo "mip_installed=no"; fi

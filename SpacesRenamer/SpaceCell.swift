@@ -43,8 +43,8 @@ struct SpaceCell: View {
         .stroke(space.isCurrent ? Color.accentColor.opacity(0.7) : .clear, lineWidth: 1.5)
     }
     .onAppear { draft = preferences.name(for: space.id) }
-    .onChange(of: preferences.activeProfileID) { _ in draft = preferences.name(for: space.id) }
-    .onChange(of: preferences.namingMode) { _ in draft = preferences.name(for: space.id) }
+    .onChange(of: preferences.activeProfileID) { _, _ in draft = preferences.name(for: space.id) }
+    .onChange(of: preferences.namingMode) { _, _ in draft = preferences.name(for: space.id) }
     .onDisappear {
       if preferences.namingMode == .manual {
         preferences.setName(draft, for: space.id)
