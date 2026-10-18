@@ -7,7 +7,7 @@ enum InjectionState: Equatable {
   case unsupported(String)
   case prerequisitesMissing(String)
   case checking
-  case inactive
+  case inactive(String?)
   case activating
   case active
   case error(String)
@@ -29,7 +29,7 @@ enum InjectionState: Equatable {
     case .unsupported(let message): return message
     case .prerequisitesMissing(let message): return message
     case .checking: return "Checking injection status…"
-    case .inactive: return "Dock renaming is not active."
+    case .inactive(let message): return message ?? "Dock renaming is not active."
     case .activating: return "Activating Dock renaming…"
     case .active: return "Space names are being applied."
     case .error(let message): return message
@@ -52,7 +52,6 @@ final class InjectionManager {
   private(set) var state: InjectionState = .checking
   private(set) var operationInProgress = false
   private(set) var prerequisitesWarning: String?
-  var backend: InjectorBackend = .dyld
 
   var isActive: Bool { activation.isActive }
 
@@ -78,43 +77,73 @@ final class InjectionManager {
 
   func refresh(injectIfEnabled: Bool = false) {
     updatePrerequisitesWarning()
-    recomputeState()
+    recomputeState(snapshot: activationSnapshot())
     // Decide only after the fresh status lands: activate()'s reload is async, so
     // a synchronous !isActive check here would see stale pre-reload state and
     // re-inject at launch even when the plugin is already live.
     activation.refresh { [weak self] in
       guard let self else { return }
-      if injectIfEnabled, preferences?.injectionConsentGranted == true, !isActive {
+      if injectIfEnabled, preferences?.automaticInjectionEnabled == true, !isActive {
         injectNow()
       }
     }
   }
 
+  private func activationSnapshot() -> ActivationSnapshot {
+    ActivationSnapshot(
+      state: activation.state,
+      hasLoaded: activation.hasLoaded,
+      isBusy: activation.isBusy,
+      pluginIsLive: activation.pluginIsLive
+    )
+  }
+
   func injectNow() {
     Self.log.debug("Manual activation requested")
-    activation.backend = backend
+    activation.backend = resolvedBackend()
     activation.activate()
   }
 
   func deactivate() {
     Self.log.debug("Deactivation requested")
-    activation.backend = backend
+    activation.backend = resolvedBackend()
     activation.deactivate()
+  }
+
+  private func resolvedBackend() -> InjectorBackend {
+    (preferences?.injectionMode ?? .auto).resolve()
   }
 
   // MARK: - Private
 
+  private struct ActivationSnapshot {
+    let state: InjectorState
+    let hasLoaded: Bool
+    let isBusy: Bool
+    let pluginIsLive: Bool
+  }
+
   private func bindActivation() {
     // ActivationModel is @Observable; re-arm the tracking whenever any observed
     // property changes so recomputeState() stays current for the app's lifetime.
+    // The snapshot is captured before tracking begins; onChange never touches the
+    // tracked properties directly, it only re-arms and recomputes from the fresh
+    // snapshot the next tracking pass captures.
+    let snapshot = ActivationSnapshot(
+      state: activation.state,
+      hasLoaded: activation.hasLoaded,
+      isBusy: activation.isBusy,
+      pluginIsLive: activation.pluginIsLive
+    )
+    recomputeState(snapshot: snapshot)
     withObservationTracking {
       _ = activation.state
       _ = activation.hasLoaded
       _ = activation.isBusy
       _ = activation.pluginIsLive
-    } onChange: {
+    } onChange: { [weak self] in
+      guard let self else { return }
       Task { @MainActor in
-        self.recomputeState()
         self.bindActivation()
       }
     }
@@ -130,8 +159,8 @@ final class InjectionManager {
     })
   }
 
-  private func recomputeState() {
-    operationInProgress = activation.isBusy
+  private func recomputeState(snapshot: ActivationSnapshot) {
+    operationInProgress = snapshot.isBusy
     guard isAppleSilicon else {
       state = .unsupported("Dock renaming requires Apple Silicon.")
       return
@@ -140,18 +169,36 @@ final class InjectionManager {
       state = .prerequisitesMissing(warning)
       return
     }
-    if activation.isBusy {
+    if snapshot.isBusy {
       state = .activating
       return
     }
-    if activation.pluginIsLive || activation.state.active != .none {
+    if snapshot.pluginIsLive {
       state = .active
       return
     }
-    state = activation.hasLoaded ? .inactive : .checking
+    if snapshot.state.active != .none {
+      // Injector is configured (LaunchAgent env var or MIP bundle directory) but the
+      // plugin itself is not loaded into the running host. Distinguish that from
+      // "nothing configured" so the UI can show a clearer recovery hint.
+      state = .inactive("Configured, not loaded")
+      return
+    }
+    state = snapshot.hasLoaded ? .inactive(nil) : .checking
   }
 
   private func updatePrerequisitesWarning() {
+    Task.detached(priority: .userInitiated) { [weak self] in
+      guard let self else { return }
+      let problems = await Self.problemsFromSubprocesses()
+      await MainActor.run { [weak self] in
+        guard let self else { return }
+        self.prerequisitesWarning = problems.isEmpty ? nil : problems.joined(separator: " ")
+      }
+    }
+  }
+
+  private static func problemsFromSubprocesses() async -> [String] {
     var problems: [String] = []
 
     let process = Process()
@@ -208,7 +255,7 @@ final class InjectionManager {
       problems.append("Could not verify System Integrity Protection status.")
     }
 
-    prerequisitesWarning = problems.isEmpty ? nil : problems.joined(separator: " ")
+    return problems
   }
 
   private static var isAppleSilicon: Bool {

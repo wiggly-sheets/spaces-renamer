@@ -12,9 +12,9 @@
 #
 # After the release, stable tags bump homebrew/spacesrenamer.rb (version and
 # sha256 of the published DMG), commit it to master, and push the same file to
-# the wiggly-sheets/homebrew-spacesrenamer tap repo using the existing
-# GH_TOKEN secret. Prerelease tags never touch the cask so stable installs stay
-# intact.
+# the consolidated wiggly-sheets/homebrew-tap tap repo (Casks/spacesrenamer.rb)
+# using the existing GH_TOKEN secret. Prerelease tags never touch the cask so
+# stable installs stay intact.
 #
 # A non-gating tap test then proves the tap works end-to-end on the arm64
 # runner. Intel (x86_64) verification stays a documented manual pre-release
@@ -118,15 +118,12 @@ jobs:
         if: ${{ !contains(github.ref_name, '-') }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          TAP_REPO="wiggly-sheets/homebrew-spacesrenamer"
+          TAP_REPO="wiggly-sheets/homebrew-tap"
           TAP_URL="https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git"
           rm -rf .tap-repo
           git clone --depth 1 "$TAP_URL" .tap-repo
           mkdir -p .tap-repo/Casks
           cp homebrew/spacesrenamer.rb .tap-repo/Casks/spacesrenamer.rb
-          # Casks must live under Casks/. Remove the legacy Formula/ copy so
-          # Homebrew does not try to interpret the cask DSL as a formula.
-          git -C .tap-repo rm -f --ignore-unmatch Formula/spacesrenamer.rb
           git -C .tap-repo config user.name "github-actions[bot]"
           git -C .tap-repo config user.email "github-actions[bot]@users.noreply.github.com"
           git -C .tap-repo add Casks/spacesrenamer.rb
@@ -150,7 +147,8 @@ jobs:
       - name: Tap, install, and verify version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          brew tap wiggly-sheets/spacesrenamer
+          brew tap wiggly-sheets/homebrew-tap
+          brew trust wiggly-sheets/homebrew-tap
           brew install --cask spacesrenamer
           INSTALLED="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/SpacesRenamer.app/Contents/Info.plist)"
           echo "Installed SpacesRenamer ${INSTALLED} (expected ${VERSION})"

@@ -87,18 +87,26 @@ private struct InjectionSettingsView: View {
       Divider()
 
       Picker("Injection method", selection: Binding(
-        get: { injection.backend },
-        set: { injection.backend = $0 }
+        get: { preferences.injectionMode },
+        set: { preferences.setInjectionMode($0) }
       )) {
-        ForEach(InjectorBackend.allCases) { backend in
-          Text(backend.title).tag(backend)
+        ForEach(InjectionMode.allCases) { mode in
+          Text(mode.title).tag(mode)
         }
       }
       .pickerStyle(.radioGroup)
 
-      Text(injection.backend.summary)
+      let resolved = preferences.injectionMode.resolve()
+      Text(resolved.summary)
         .font(.callout)
         .foregroundStyle(.secondary)
+      if preferences.injectionMode == .auto {
+        Text(resolved == .mip
+          ? "MIP is installed, so it is used."
+          : "MIP is not installed, so DYLD is used.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
 
       Button {
         if injection.state == .active {
@@ -114,10 +122,15 @@ private struct InjectionSettingsView: View {
       .buttonStyle(.borderedProminent)
       .disabled(injection.operationInProgress)
 
-      Toggle("Launch Spaces Renamer at login", isOn: Binding(
-        get: { preferences.loginItemEnabled },
-        set: { preferences.setLoginItemEnabled($0) }
-      ))
+      HStack(spacing: 8) {
+        Text("Launch Spaces Renamer at login")
+        Spacer()
+        Text(preferences.loginItemEnabled ? "On" : "Off")
+          .foregroundStyle(.secondary)
+      }
+      Text("Controlled in General. The app re-injects automatically when it is running.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
 
       Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP.")
         .font(.caption)

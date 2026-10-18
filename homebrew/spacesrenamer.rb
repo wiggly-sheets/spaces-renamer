@@ -1,11 +1,11 @@
 # Homebrew formula for Spaces Renamer
 #
-# Install from the custom tap:
-#   brew tap wiggly-sheets/spacesrenamer
-#   brew install spacesrenamer
+# Install from the consolidated tap:
+#   brew tap wiggly-sheets/homebrew-tap
+#   brew install --cask spacesrenamer
 #
-# Or directly from the raw formula URL:
-#   brew install wiggly-sheets/spacesrenamer/homebrew/spacesrenamer.rb
+# Or directly from the raw cask URL:
+#   brew install --cask wiggly-sheets/homebrew-tap/spacesrenamer.rb
 #
 # This formula installs the .app bundle to /Applications.
 # The Dock injection bundle is bundled inside the app.
@@ -19,7 +19,7 @@ cask "spacesrenamer" do
   desc "Give macOS Spaces persistent names in Mission Control"
   homepage "https://github.com/wiggly-sheets/spaces-renamer"
 
-  depends_on macos: :ventura
+  depends_on macos: :sonoma
 
   app "SpacesRenamer.app"
 

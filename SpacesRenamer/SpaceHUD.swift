@@ -1,47 +1,70 @@
 import AppKit
+import Observation
 import SwiftUI
 
 /// Shows a brief HUD centered on every display when the Space changes, each display
-/// showing its own current Space's name. Driven by `activeSpaceDidChangeNotification`;
-/// gated on the user setting. Pure app UI, independent of the injected plugin.
+/// showing its own current Space's name. Reacts to `SpaceStore.snapshot` changes
+/// rather than registering its own `activeSpaceDidChangeNotification` observer,
+/// so only one refresh path exists and the HUD never races a second refresh.
+/// Gated on the user setting. Pure app UI, independent of the injected plugin.
 @MainActor
 final class SpaceHUDController {
   private let preferences: PreferencesStore
   private let spaces: SpaceStore
-  private var observer: (any NSObjectProtocol)?
   /// One reusable panel per display, keyed by the display's snapshot id.
   private var panels: [String: SpaceHUDPanel] = [:]
+  /// Tracks the last Space id the HUD displayed so the card only appears on a
+  /// real Space switch rather than on every snapshot refresh.
+  private var lastShownSpaceID: String?
+  /// Guard flag; checked on the main actor after each snapshot change.
+  private var stopped = false
 
   init(preferences: PreferencesStore, spaces: SpaceStore) {
     self.preferences = preferences
     self.spaces = spaces
-    observer = NSWorkspace.shared.notificationCenter.addObserver(
-      forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor in self?.spaceChanged() }
-    }
+    armObservation()
   }
 
   func stop() {
-    if let observer {
-      NSWorkspace.shared.notificationCenter.removeObserver(observer)
-      self.observer = nil
+    stopped = true
+  }
+
+  private func armObservation() {
+    withObservationTracking {
+      _ = spaces.snapshot
+    } onChange: { [weak self] in
+      guard let self else { return }
+      Task { @MainActor in
+        guard !self.stopped else { return }
+        self.spaceChanged()
+        self.armObservation()
+      }
     }
   }
 
   private func spaceChanged() {
     guard preferences.showSpaceChangeHUD else { return }
-    spaces.refresh(
-      for: preferences.namingMode,
-      showDuplicateApplications: preferences.showDuplicateApplications
-    ) { [weak self] in
-      self?.showHUD()
+    let currentID = spaces.snapshot.flatMap(\.spaces).first(where: \.isCurrent)?.id
+    guard let currentID else { return }
+    // First snapshot change (app launch) records the baseline without showing.
+    if lastShownSpaceID == nil {
+      lastShownSpaceID = currentID
+      return
     }
+    if currentID == lastShownSpaceID { return }
+    lastShownSpaceID = currentID
+    showHUD()
   }
 
   private func showHUD() {
     let displays = spaces.snapshot
     guard !displays.isEmpty else { return }
+    // Prune panels for displays no longer in the current snapshot. Without
+    // this, disconnected/reconnected displays leak NSPanel + NSHostingView
+    // instances that never get released.
+    for staleKey in panels.keys where !displays.contains(where: { $0.id == staleKey }) {
+      panels.removeValue(forKey: staleKey)
+    }
     let screens = NSScreen.screens
     for (index, display) in displays.enumerated() {
       guard let current = display.spaces.first(where: \.isCurrent) else { continue }

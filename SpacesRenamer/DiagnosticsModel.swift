@@ -110,15 +110,34 @@ final class DiagnosticsModel {
       return check
     }
     let line = output.split(separator: "\n").first.map(String.init) ?? output
-    if output.localizedCaseInsensitiveContains("disabled") {
+    let lowered = output.lowercased()
+    if lowered.contains("status: disabled") {
       check.status = .pass
       check.finding = line
-    } else {
-      check.status = .fail
-      check.finding = line
-      check.remedy = "macOS can only disable SIP from Recovery: reboot holding the power button, open Terminal, run `csrutil disable`, reboot. Copy the command below."
-      check.action = .copyCommand("csrutil disable")
+      return check
     }
+    if lowered.contains("custom configuration") {
+      let required: [(String, String)] = [
+        ("Filesystem protections", "filesystem protections: disabled"),
+        ("Debugging restrictions", "debugging restrictions: disabled"),
+        ("NVRAM protections", "nvram protections: disabled"),
+      ]
+      let missing = required.filter { !lowered.contains($1) }
+      if missing.isEmpty {
+        check.status = .pass
+        check.finding = line
+      } else {
+        check.status = .fail
+        check.finding = line
+        check.remedy = "Partial SIP must disable filesystem, debugging, and NVRAM protections. Missing: \(missing.map(\.0).joined(separator: ", "))."
+        check.action = .copyCommand("csrutil disable")
+      }
+      return check
+    }
+    check.status = .fail
+    check.finding = line
+    check.remedy = "macOS can only disable SIP from Recovery: reboot holding the power button, open Terminal, run `csrutil disable`, reboot. Copy the command below."
+    check.action = .copyCommand("csrutil disable")
     return check
   }
 

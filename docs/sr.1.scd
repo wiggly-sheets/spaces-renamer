@@ -35,7 +35,7 @@ this manual page under _$HOME/.local_ when it launches.
 	Print the active profile, naming mode, and known Spaces as JSON.
 
 *renamer*
-	Open or close the Space renaming popover.
+	Open Settings. The renaming popover cannot be opened programmatically.
 
 *settings*
 	Open the Settings window.

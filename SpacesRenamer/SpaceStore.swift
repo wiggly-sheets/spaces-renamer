@@ -72,6 +72,19 @@ final class SpaceStore {
   private var refreshTask: Task<Void, Never>?
   private var refreshGeneration = 0
 
+  /// Test seam: when false, skip writing `SpacesRenamerMonitors` into the
+  /// live `com.apple.dock` preference domain. Production always writes.
+  private var publishesToDockDomain: Bool
+
+  convenience init() {
+    self.init(publishesToDockDomain: true)
+  }
+
+  /// Test seam: points the monitor layout at the injected bundle off.
+  init(publishesToDockDomain: Bool) {
+    self.publishesToDockDomain = publishesToDockDomain
+  }
+
   @MainActor
   func refresh(
     for namingMode: NamingMode = .manual,
@@ -136,6 +149,7 @@ final class SpaceStore {
 
     // Live preference-domain layout for the injected Dock bundle. Only write
     // when the value changed to avoid cfprefsd write churn on every refresh.
+    guard publishesToDockDomain else { return }
     let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
     let previousMonitors = dockDefaults?.array(forKey: "SpacesRenamerMonitors")
     if previousMonitors == nil || !NSArray(array: monitors).isEqual(previousMonitors) {

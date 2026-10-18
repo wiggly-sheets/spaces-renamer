@@ -76,7 +76,9 @@ macOS 14 or later. Apple silicon is required for Mission Control renaming, but t
 Or install the Homebrew cask (signed releases only; prereleases skip the cask):
 
 ```bash
-brew install --cask wiggly-sheets/spacesrenamer/spacesrenamer
+brew tap wiggly-sheets/homebrew-tap
+brew trust wiggly-sheets/homebrew-tap
+brew install --cask spacesrenamer
 ```
 
 ### Enable Mission Control names

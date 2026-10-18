@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Darwin
 import ServiceManagement
+import os
 
 /// Keeps automatic names fresh without polling. Yabai emits only when a
 /// window/Space change can affect the generated names; AppDelegate coalesces
@@ -15,7 +16,7 @@ private final class YabaiEventMonitor {
     "window_moved",
     "window_resized",
     "window_minimized",
-    "window_deminimized",
+    "window_deminized",
     "space_changed",
     "space_created",
     "space_destroyed",
@@ -27,12 +28,18 @@ private final class YabaiEventMonitor {
     "mission_control_enter"
   ]
 
+  private static let log = Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "YabaiEventMonitor")
+
   private let socketPath = "/tmp/spaces-renamer-\(getuid()).sock"
   private let queue = DispatchQueue(label: "com.wiggly-sheets.SpacesRenamer.yabai-events")
   private let onChange: (String) -> Void
   private var server: Int32 = -1
   private var source: DispatchSourceRead?
   private var stopped = false
+  /// The most recent socket-bind/listen failure, if any. Non-nil means automatic
+  /// naming updates are silently stopped; the owner can surface this to the user.
+  @MainActor
+  private(set) var bindError: String?
 
   init(onChange: @escaping (String) -> Void) {
     self.onChange = onChange
@@ -73,6 +80,12 @@ private final class YabaiEventMonitor {
       }
     }
     guard didBind == 0, listen(descriptor, 8) == 0 else {
+      let message = "Could not bind yabai event socket: errno \(errno). Automatic naming updates will not run."
+      Self.log.error("\(message)")
+      Task { @MainActor in
+        self.bindError = message
+        self.onChange("bind_failed")
+      }
       close(descriptor)
       unlink(socketPath)
       return
@@ -153,9 +166,17 @@ private final class YabaiEventMonitor {
 }
 
 final class GlobalHotkeyMonitor {
+  private static let log = Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "GlobalHotkeyMonitor")
+
   private var hotKey: EventHotKeyRef?
   private var handler: EventHandlerRef?
   private let callback: () -> Void
+  private var registeredKeyCode: UInt32?
+  private var registeredModifiers: UInt32?
+  /// The OSStatus of the most recent RegisterEventHotKey call. Nonzero means the
+  /// hotkey is not actually active; callers can surface this instead of silently
+  /// recreating an identical registration on every preference change.
+  var lastRegisterError: OSStatus?
 
   init(keyCode: UInt32, modifiers: UInt32, callback: @escaping () -> Void) {
     self.callback = callback
@@ -175,8 +196,28 @@ final class GlobalHotkeyMonitor {
       Unmanaged.passUnretained(self).toOpaque(),
       &handler
     )
+    register(keyCode: keyCode, modifiers: modifiers)
+  }
+
+  /// Re-registers only when the key or modifier mask actually changed. Re-registering
+  /// an identical hotkey on every preference notification destroys and recreates the
+  /// Carbon registration pointlessly.
+  func configure(keyCode: UInt32, modifiers: UInt32) {
+    guard keyCode != registeredKeyCode || modifiers != registeredModifiers else { return }
+    register(keyCode: keyCode, modifiers: modifiers)
+  }
+
+  private func register(keyCode: UInt32, modifiers: UInt32) {
     let identifier = EventHotKeyID(signature: OSType(0x53524E4D), id: 1) // SRNM
-    RegisterEventHotKey(keyCode, modifiers, identifier, GetApplicationEventTarget(), 0, &hotKey)
+    var newHotKey: EventHotKeyRef?
+    let status = RegisterEventHotKey(keyCode, modifiers, identifier, GetApplicationEventTarget(), 0, &newHotKey)
+    lastRegisterError = status == noErr ? nil : status
+    if let newHotKey {
+      if let existing = hotKey { UnregisterEventHotKey(existing) }
+      hotKey = newHotKey
+      registeredKeyCode = keyCode
+      registeredModifiers = modifiers
+    }
   }
 
   deinit {
@@ -187,6 +228,8 @@ final class GlobalHotkeyMonitor {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  private static let log = Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "AppDelegate")
+
   let preferences = PreferencesStore()
   let spaces = SpaceStore()
   let appModel = AppModel()
@@ -605,11 +648,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   @MainActor
   private func configureHotkey() {
     let p = preferences.hotkey
+    if let monitor = hotkeyMonitor {
+      monitor.configure(keyCode: p.keyCode, modifiers: p.carbonModifiers)
+      if let error = monitor.lastRegisterError {
+        Self.log.error("Could not register hotkey: OSStatus \(error)")
+      }
+      return
+    }
     hotkeyMonitor = GlobalHotkeyMonitor(keyCode: p.keyCode, modifiers: p.carbonModifiers) { [weak self] in
       Task { @MainActor in
         guard let self else { return }
         self.appModel.openSettings(preferences: self.preferences, spaces: self.spaces, injection: self.injection)
       }
+    }
+    if let error = hotkeyMonitor?.lastRegisterError {
+      Self.log.error("Could not register hotkey: OSStatus \(error)")
     }
   }
 

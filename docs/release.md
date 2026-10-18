@@ -30,7 +30,8 @@ The automated tap test runs only on the arm64 runner. Before cutting a stable
 release, manually verify the tap on an Intel Mac:
 
 ```bash
-brew tap wiggly-sheets/spacesrenamer
+brew tap wiggly-sheets/homebrew-tap
+brew trust wiggly-sheets/homebrew-tap
 brew install --cask spacesrenamer
 /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
   /Applications/SpacesRenamer.app/Contents/Info.plist
@@ -56,7 +57,7 @@ The Release workflow then:
    (prerelease only when the tag contains a dash);
 4. bumps `homebrew/spacesrenamer.rb` (version + sha256 from the published
    DMG), commits it to master, and pushes the same file to the
-   `wiggly-sheets/homebrew-spacesrenamer` tap repo;
+   `wiggly-sheets/homebrew-tap` tap repo (under `Casks/spacesrenamer.rb`);
 5. runs a non-gating tap test (`brew tap` + `brew install --cask` + version
    assert) on the arm64 runner, installing from the DMG.
 

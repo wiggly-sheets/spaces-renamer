@@ -1,18 +1,47 @@
 import AppKit
 import Observation
 
+/// User-facing preference for which injection mechanism to use. `auto` defers to the narrow
+/// MIP path when the framework is installed and falls back to DYLD otherwise; the explicit
+/// cases let a user override either way (for example, force DYLD when MIP is installed but
+/// broken, or force MIP for testing on a machine without the framework).
+enum InjectionMode: String, Codable, CaseIterable, Identifiable {
+  case auto
+  case mip
+  case dyld
+
+  var id: Self { self }
+
+  var title: String {
+    switch self {
+    case .auto: return "Auto"
+    case .mip: return "MIP (macOS Injection Platform)"
+    case .dyld: return "LaunchAgent (DYLD)"
+    }
+  }
+
+  /// Resolves the preference to the backend the injector actually runs.
+  func resolve() -> InjectorBackend {
+    switch self {
+    case .auto: return .preferred
+    case .mip: return .mip
+    case .dyld: return .dyld
+    }
+  }
+}
+
 /// The two ways to load `spaces-renamer.dylib` into the Spaces-bar host. Both are driven by the
 /// embedded `injector.sh`; the difference is the loading mechanism and its cost.
 enum InjectorBackend: String, CaseIterable, Identifiable {
-  case dyld
   case mip
+  case dyld
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
-    case .dyld: "DYLD_INSERT_LIBRARIES"
-    case .mip: "MIP"
+    case .dyld: "LaunchAgent (DYLD)"
+    case .mip: "MIP (macOS Injection Platform)"
     }
   }
 
@@ -22,9 +51,13 @@ enum InjectorBackend: String, CaseIterable, Identifiable {
     case .dyld:
       "No root. A per-user LaunchAgent sets the variable and restarts the host at login. The library is loaded into every app you launch, where it does nothing."
     case .mip:
-      "Needs a working MIP install and an admin password. Targets only the host and survives reboot with no login agent."
+      "Needs a working MIP (macOS Injection Platform) install and an admin password. Targets only the host and survives reboot with no login agent."
     }
   }
+
+  /// The narrow path when MIP is installed: it loads the bundle only into the executables named
+  /// in the bundle's Info.plist, so nothing beyond Dock/WindowManager ever sees the dylib.
+  static var preferred: InjectorBackend { Injector.mipAvailable ? .mip : .dyld }
 }
 
 /// Parsed output of `injector.sh status`.
@@ -40,6 +73,9 @@ struct InjectorState {
   var mipInstalled = false
   var mipBundleOn = false
   var active: Active = .none
+  /// Set when the injector script itself could not be read. Lets callers distinguish
+  /// "status unknown" from "status read, nothing configured".
+  var readError: String?
 
   init() {}
 
@@ -102,10 +138,11 @@ enum Injector {
       && FileManager.default.fileExists(atPath: dylib.path)
   }
 
-  static func status() -> InjectorState {
+  static func status() throws -> InjectorState {
     guard scriptURL != nil, let output = try? sh(["status"]) else {
       var state = InjectorState()
       state.host = defaultHost
+      state.readError = "Could not read injector status."
       return state
     }
     return InjectorState(statusOutput: output)
@@ -120,7 +157,7 @@ enum Injector {
       try sh(["dyld", "on", dylib.path])
     case .mip:
       guard let script = scriptURL, let bundle = mipBundleURL else { throw InjectorError.notEmbedded }
-      try admin("/bin/sh \(shellQuote(script.path)) mip on \(shellQuote(bundle.path))")
+      try admin("/bin/sh \(script.path) mip on \(bundle.path)")
     }
   }
 
@@ -130,14 +167,14 @@ enum Injector {
       try sh(["dyld", "off"])
     case .mip:
       guard let script = scriptURL else { throw InjectorError.notEmbedded }
-      try admin("/bin/sh \(shellQuote(script.path)) mip off")
+      try admin("/bin/sh \(script.path) mip off")
     }
   }
 
   /// Adds `-arm64e_preview_abi` to boot-args via an admin prompt (root writes NVRAM).
   static func enableARM64e() throws {
     guard let script = scriptURL else { throw InjectorError.notEmbedded }
-    try admin("/bin/sh \(shellQuote(script.path)) arm64e on")
+    try admin("/bin/sh \(script.path) arm64e on")
   }
 
   /// User-space restart through System Events, so no extra privilege is needed.
@@ -174,10 +211,7 @@ enum Injector {
 
   /// Runs a shell command as root via an `osascript` admin prompt.
   private static func admin(_ command: String) throws {
-    let escaped = command
-      .replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "\"", with: "\\\"")
-    let appleScript = "do shell script \"\(escaped)\" with administrator privileges"
+    let appleScript = "do shell script \"\(escapeAppleScript(command))\" with administrator privileges"
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
     process.arguments = ["-e", appleScript]
@@ -199,12 +233,24 @@ enum Injector {
     }
   }
 
-  private static func shellQuote(_ path: String) -> String {
-    "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+  /// Escapes a string for use inside an AppleScript double-quoted string literal.
+  /// Only `\\` and `"` need escaping; AppleScript treats other characters literally.
+  private static func escapeAppleScript(_ string: String) -> String {
+    return string
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "\"", with: "\\\"")
   }
 
-  private static var defaultHost: String {
+  static var defaultHost: String {
     ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 ? "WindowManager" : "Dock"
+  }
+
+  /// True when the MIP injection framework is installed at its well-known path. MIP loads the
+  /// bundle only into the executables named in the bundle's Info.plist, so it is the narrow
+  /// injection path; DYLD_INSERT_LIBRARIES is global and loads the library into every GUI app
+  /// launched while it is set.
+  static var mipAvailable: Bool {
+    FileManager.default.fileExists(atPath: "/Library/Apple/System/Library/Frameworks/mip")
   }
 }
 
@@ -260,13 +306,15 @@ final class ActivationModel {
   /// The plugin's own report that it is loaded in the running host, independent of which injector
   /// (if any) this app manages. This is the ground truth for "renaming is on".
   private(set) var pluginIsLive = false
-  var backend: InjectorBackend = .dyld
+  var backend: InjectorBackend = .preferred
   var errorMessage: String?
 
   var isEmbedded: Bool { Injector.isEmbedded }
 
-  /// Renaming is active if the plugin is loaded, however it got there, or an injector we manage is on.
-  var isActive: Bool { pluginIsLive || state.active != .none }
+  /// Renaming is active only when the plugin itself reports it is loaded into the running host.
+  /// Injector-side artifacts (a configured LaunchAgent env var or a MIP bundle directory) do not
+  /// prove the dylib ever loaded — the plugin handshake is the ground truth.
+  var isActive: Bool { pluginIsLive }
 
   func refresh(completion: (() -> Void)? = nil) {
     Task { await reload(); completion?() }
@@ -300,7 +348,16 @@ final class ActivationModel {
 
   private func reload() async {
     let snapshot = await Task.detached(priority: .userInitiated) {
-      (status: Injector.status(), live: PluginMarker.current()?.isLive ?? false)
+      let status: InjectorState
+      do {
+        status = try Injector.status()
+      } catch {
+        var fallback = InjectorState()
+        fallback.host = Injector.defaultHost
+        fallback.readError = error.localizedDescription
+        status = fallback
+      }
+      return (status: status, live: PluginMarker.current()?.isLive ?? false)
     }.value
     state = snapshot.status
     pluginIsLive = snapshot.live

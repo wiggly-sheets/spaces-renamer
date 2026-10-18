@@ -17,16 +17,30 @@ struct RenamerView: View {
         Spacer()
         Menu {
           ForEach(Array(preferences.profiles.enumerated()), id: \.element.id) { index, profile in
-            Button {
-              preferences.activateProfile(profile.id)
-            } label: {
-              if profile.id == preferences.activeProfileID {
-                Label(profile.name, systemImage: "checkmark")
+            Group {
+              if index < 9 {
+                Button {
+                  preferences.activateProfile(profile.id)
+                } label: {
+                  if profile.id == preferences.activeProfileID {
+                    Label(profile.name, systemImage: "checkmark")
+                  } else {
+                    Text(profile.name)
+                  }
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
               } else {
-                Text(profile.name)
+                Button {
+                  preferences.activateProfile(profile.id)
+                } label: {
+                  if profile.id == preferences.activeProfileID {
+                    Label(profile.name, systemImage: "checkmark")
+                  } else {
+                    Text(profile.name)
+                  }
+                }
               }
             }
-            .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
           }
         } label: {
           Label(preferences.activeProfile.name, systemImage: "person.crop.rectangle.stack")

@@ -144,6 +144,8 @@ verify:
 	codesign --verify --deep --strict --all-architectures "$(APP)"
 	# The legacy run.sh/dylinject layout must no longer be embedded.
 	test ! -e "$(APP)/Contents/Resources/Injection"
+	# The narrow MIP path must be preferred when MIP is installed.
+	grep -q 'mipAvailable ? .mip : .dyld' "SpacesRenamer/Injector.swift"
 
 test:
 	./scripts/tests/test_release_notes.sh

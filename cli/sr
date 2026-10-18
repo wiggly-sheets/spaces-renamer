@@ -123,7 +123,7 @@ case "$CMD" in
     echo ""
     echo "Usage:"
     echo "  sr status                  Show current state"
-    echo "  sr renamer                 Open rename popover"
+    echo "  sr renamer                 Open Settings"
     echo "  sr settings                Open settings"
     echo "  sr profile switch <uuid>   Switch active profile"
     echo "  sr profile list            List profiles as JSON"

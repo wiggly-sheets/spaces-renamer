@@ -48,7 +48,7 @@ final class ConfigFile: ObservableObject {
     do {
       let contents = try String(contentsOf: Self.fileURL, encoding: .utf8)
       let parsed = try TOML.parse(contents)
-      let settings = try parsedSettings(from: parsed)
+      let settings = parsedSettings(from: parsed)
       let namesByProfileID = parsedProfileNames(from: parsed)
       preferences.applyConfiguration(
         namingMode: settings.namingMode,
@@ -71,7 +71,7 @@ final class ConfigFile: ObservableObject {
 
   private func parsedSettings(
     from parsed: [String: [String: [String: TOMLValue]]]
-  ) throws -> ParsedSettings {
+  ) -> ParsedSettings {
     guard let settings = parsed["settings"]?[""] else { return ParsedSettings() }
     var result = ParsedSettings()
     var hotkey = preferences.hotkey
@@ -93,8 +93,13 @@ final class ConfigFile: ObservableObject {
         result.showDuplicateApplications = value.boolValue
       case "hotkey_key":
         if let i = value.intValue {
-          hotkey.keyCode = try ConfigPolicy.hotkeyKeyCode(from: i)
-          hasHotkeySetting = true
+          do {
+            hotkey.keyCode = try ConfigPolicy.hotkeyKeyCode(from: i)
+            hasHotkeySetting = true
+          } catch {
+            // Skip one bad field rather than discarding every other setting.
+            lastReadError = error.localizedDescription
+          }
         }
       case "hotkey_ctrl":
         if let b = value.boolValue { hotkey.control = b; hasHotkeySetting = true }

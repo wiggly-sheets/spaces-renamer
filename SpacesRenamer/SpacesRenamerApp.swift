@@ -8,7 +8,7 @@ struct SpacesRenamerApp: App {
     // SceneBuilder on this SDK supports runtime conditionals only via
     // #available, so the MenuBarExtra stays present and the label view
     // goes empty when the item is hidden (a hidden item cannot be clicked,
-    // and reopening the app/hotkey opens Settings via AppDelegate).
+    // and reopening the app/hotkey opens Settings via appDelegate).
     MenuBarExtra {
       PopoverContent(appDelegate: appDelegate)
         .environment(appDelegate.preferences)
@@ -16,7 +16,7 @@ struct SpacesRenamerApp: App {
         .environment(appDelegate.injection)
         .environment(appDelegate.appModel)
     } label: {
-      menuBarLabel
+      MenuBarLabelView()
     }
     .menuBarExtraStyle(.window)
     // Scene-root injection: every system-driven instantiation of this scene's
@@ -26,17 +26,25 @@ struct SpacesRenamerApp: App {
     .environment(appDelegate.injection)
     .environment(appDelegate.appModel)
   }
+}
 
-  @ViewBuilder
-  private var menuBarLabel: some View {
-    if appDelegate.preferences.showMenuBarIcon {
-      switch appDelegate.preferences.menuBarDisplayMode {
+/// The menu bar label as its own view so it reads the observed stores directly.
+/// SwiftUI re-evaluates the closure whenever `SpaceStore` or `PreferencesStore`
+/// changes, so the label follows the active Space, profile, naming mode and
+/// display mode without relaunching.
+private struct MenuBarLabelView: View {
+  @Environment(PreferencesStore.self) private var preferences
+  @Environment(SpaceStore.self) private var spaces
+
+  var body: some View {
+    if preferences.showMenuBarIcon {
+      switch preferences.menuBarDisplayMode {
       case .icon:
         Image(systemName: "rectangle.grid.2x2")
       case .spaceName, .spaceNumberAndName:
-        let label = appDelegate.spaces.menuBarLabel(
-          for: appDelegate.preferences.menuBarDisplayMode,
-          preferences: appDelegate.preferences
+        let label = spaces.menuBarLabel(
+          for: preferences.menuBarDisplayMode,
+          preferences: preferences
         )
         if label.isEmpty {
           Image(systemName: "rectangle.grid.2x2")
@@ -53,7 +61,7 @@ struct SpacesRenamerApp: App {
 /// The menu-bar popover: the rename grid plus the actions formerly in the
 /// status item's right-click menu (naming mode, injection, Settings, Quit).
 private struct PopoverContent: View {
-  let appDelegate: AppDelegate
+  let(appDelegate):AppDelegate
 
   @Environment(PreferencesStore.self) private var preferences
   @Environment(InjectionManager.self) private var injection
@@ -98,6 +106,7 @@ private struct PopoverContent: View {
             preferences.setAutomaticInjectionEnabled(false)
             injection.deactivate()
           } else {
+            preferences.setInjectionConsent(true)
             injection.injectNow()
           }
         } label: {
