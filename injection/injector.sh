@@ -40,32 +40,35 @@ DYLD_VAR="DYLD_INSERT_LIBRARIES"
 ARM64E_FLAG="-arm64e_preview_abi"
 
 log() { printf 'injector: %s\n' "$*" >&2; }
-die() { log "$*"; exit 1; }
+die() {
+	log "$*"
+	exit 1
+}
 
 # The process that renders the Spaces bar for this macOS release.
 host_process() {
-  major=$(sw_vers -productVersion | cut -d. -f1)
-  if [ "$major" -ge 27 ] 2>/dev/null; then echo WindowManager; else echo Dock; fi
+	major=$(sw_vers -productVersion | cut -d. -f1)
+	if [ "$major" -ge 27 ] 2>/dev/null; then echo WindowManager; else echo Dock; fi
 }
 
 restart_host() {
-  host=$(host_process)
-  /usr/bin/killall "$host" 2>/dev/null || true
-  log "restarted $host"
+	host=$(host_process)
+	/usr/bin/killall "$host" 2>/dev/null || true
+	log "restarted $host"
 }
 
 # Active when the LaunchAgent is installed and the variable already names the
 # stored payload — the state `dyld boot` produces, i.e. the host has restarted
 # into the library. Shared by `status` and the `dyld on` idempotency guard.
 dyld_is_active() {
-  [ -f "$AGENT_PLIST" ] && [ "${1:-}" = "$DYLIB_STORE" ]
+	[ -f "$AGENT_PLIST" ] && [ "${1:-}" = "$DYLIB_STORE" ]
 }
 
 # ---------------------------------------------------------------------------- dyld
 
 write_agent_plist() {
-  /bin/mkdir -p "$(dirname "$AGENT_PLIST")"
-  cat >"$AGENT_PLIST" <<PLIST
+	/bin/mkdir -p "$(dirname "$AGENT_PLIST")"
+	cat >"$AGENT_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -89,149 +92,168 @@ PLIST
 }
 
 dyld_on() {
-  dylib=${1:-}
-  [ -n "$dylib" ] || die "dyld on: missing <dylib> path"
-  [ -f "$dylib" ] || die "dyld on: no dylib at $dylib"
-  dylib=$(cd "$(dirname "$dylib")" && printf '%s/%s' "$(pwd)" "$(basename "$dylib")")
+	dylib=${1:-}
+	[ -n "$dylib" ] || die "dyld on: missing <dylib> path"
+	[ -f "$dylib" ] || die "dyld on: no dylib at $dylib"
+	dylib=$(cd "$(dirname "$dylib")" && printf '%s/%s' "$(pwd)" "$(basename "$dylib")")
 
-  env_val=$(launchctl getenv "$DYLD_VAR" 2>/dev/null || true)
-  if dyld_is_active "$env_val"; then
-    log "dyld already active"
-    return 0
-  fi
+	env_val=$(launchctl getenv "$DYLD_VAR" 2>/dev/null || true)
+	if dyld_is_active "$env_val"; then
+		log "dyld already active"
+		return 0
+	fi
 
-  /bin/mkdir -p "$SUPPORT"
-  /bin/cp "$dylib" "$DYLIB_STORE"
-  # Keep a stable copy of this script for the LaunchAgent, so activation survives moving the app.
-  if [ "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" != "$SCRIPT_STORE" ]; then
-    /bin/cp "$0" "$SCRIPT_STORE"
-  fi
+	/bin/mkdir -p "$SUPPORT"
+	/bin/cp "$dylib" "$DYLIB_STORE"
+	# Keep a stable copy of this script for the LaunchAgent, so activation survives moving the app.
+	if [ "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" != "$SCRIPT_STORE" ]; then
+		/bin/cp "$0" "$SCRIPT_STORE"
+	fi
 
-  write_agent_plist
-  # (Re)load the agent for this login session; RunAtLoad runs `dyld boot`, which sets the
-  # environment variable and restarts the host so it inherits the library.
-  uid=$(id -u)
-  launchctl bootout "gui/$uid/$AGENT_LABEL" 2>/dev/null || true
-  launchctl bootstrap "gui/$uid" "$AGENT_PLIST"
-  log "dyld injector activated ($DYLIB_STORE)"
+	write_agent_plist
+	# (Re)load the agent for this login session; RunAtLoad runs `dyld boot`, which sets the
+	# environment variable and restarts the host so it inherits the library.
+	uid=$(id -u)
+	launchctl bootout "gui/$uid/$AGENT_LABEL" 2>/dev/null || true
+	launchctl bootstrap "gui/$uid" "$AGENT_PLIST"
+	log "dyld injector activated ($DYLIB_STORE)"
 }
 
 # Invoked by the LaunchAgent (and once at activation): publish the variable and restart the host.
 dyld_boot() {
-  [ -f "$DYLIB_STORE" ] || die "dyld boot: dylib missing ($DYLIB_STORE); run 'dyld on <dylib>' first"
-  launchctl setenv "$DYLD_VAR" "$DYLIB_STORE"
-  restart_host
+	[ -f "$DYLIB_STORE" ] || die "dyld boot: dylib missing ($DYLIB_STORE); run 'dyld on <dylib>' first"
+	launchctl setenv "$DYLD_VAR" "$DYLIB_STORE"
+	restart_host
 }
 
 dyld_off() {
-  uid=$(id -u)
-  launchctl bootout "gui/$uid/$AGENT_LABEL" 2>/dev/null || true
-  /bin/rm -f "$AGENT_PLIST"
-  launchctl unsetenv "$DYLD_VAR"
-  restart_host
-  /bin/rm -f "$DYLIB_STORE" "$SCRIPT_STORE"
-  log "dyld injector removed"
+	uid=$(id -u)
+	bootout_ok=0
+	launchctl bootout "gui/$uid/$AGENT_LABEL" 2>/dev/null || bootout_ok=1
+	/bin/rm -f "$AGENT_PLIST"
+	launchctl unsetenv "$DYLD_VAR"
+	restart_host
+	if [ "$bootout_ok" -eq 0 ]; then
+		/bin/rm -f "$DYLIB_STORE" "$SCRIPT_STORE"
+		log "dyld injector removed"
+	else
+		log "warning: bootout failed (agent may still be registered); keeping $SCRIPT_STORE and $DYLIB_STORE for recovery"
+	fi
 }
 
 # ---------------------------------------------------------------------------- mip
 
 require_root() { [ "$(id -u)" -eq 0 ] || die "$1 requires root (run under sudo or the app's admin prompt)"; }
 
+mip_daemon_alive() {
+	launchctl list 2>/dev/null | grep -q "mip"
+}
+
 mip_on() {
-  bundle=${1:-}
-  require_root "mip on"
-  [ -d "$MIP_ROOT" ] || die "MIP is not installed at $MIP_ROOT (see README: install LIJI32/MIP first)"
-  [ -n "$bundle" ] || die "mip on: missing assembled <.bundle> path"
-  [ -d "$bundle" ] || die "mip on: no bundle directory at $bundle"
-  /bin/mkdir -p "$MIP_BUNDLES"
-  dest="$MIP_BUNDLES/$MIP_BUNDLE_NAME"
-  /bin/rm -rf "$dest"
-  /bin/cp -R "$bundle" "$dest"
-  # Apple-signed hosts refuse to load libraries not owned by root.
-  /usr/sbin/chown -R root:wheel "$dest"
-  restart_host
-  log "mip bundle installed to $dest"
+	bundle=${1:-}
+	require_root "mip on"
+	[ -d "$MIP_ROOT" ] || die "MIP is not installed at $MIP_ROOT (see README: install LIJI32/MIP first)"
+	mip_daemon_alive || die "MIP daemon not running (start MIP first)"
+	[ -n "$bundle" ] || die "mip on: missing assembled <.bundle> path"
+	[ -d "$bundle" ] || die "mip on: no bundle directory at $bundle"
+	/bin/mkdir -p "$MIP_BUNDLES"
+	dest="$MIP_BUNDLES/$MIP_BUNDLE_NAME"
+	/bin/rm -rf "$dest"
+	/bin/cp -R "$bundle" "$dest"
+	# Apple-signed hosts refuse to load libraries not owned by root.
+	/usr/sbin/chown -R root:wheel "$dest"
+	restart_host
+	log "mip bundle installed to $dest"
 }
 
 mip_off() {
-  require_root "mip off"
-  /bin/rm -rf "$MIP_BUNDLES/$MIP_BUNDLE_NAME"
-  restart_host
-  log "mip bundle removed"
+	require_root "mip off"
+	/bin/rm -rf "$MIP_BUNDLES/$MIP_BUNDLE_NAME"
+	restart_host
+	log "mip bundle removed"
 }
 
 # ---------------------------------------------------------------------------- arm64e ABI
 
 current_boot_args() {
-  /usr/sbin/nvram boot-args 2>/dev/null | sed -e 's/^boot-args[[:space:]]*//'
+	/usr/sbin/nvram boot-args 2>/dev/null | sed -e 's/^boot-args[[:space:]]*//'
 }
 
 arm64e_state() {
-  case " $(current_boot_args) " in
-    *" $ARM64E_FLAG "*) echo on ;;
-    *) echo off ;;
-  esac
+	case " $(current_boot_args) " in
+	*" $ARM64E_FLAG "*) echo on ;;
+	*) echo off ;;
+	esac
 }
 
 # Add the preview-ABI flag to boot-args without disturbing any flags already there. Takes effect
 # on the next reboot. Root, because it writes NVRAM.
 arm64e_on() {
-  require_root "arm64e on"
-  if [ "$(arm64e_state)" = on ]; then log "arm64e ABI already enabled"; return 0; fi
-  args=$(current_boot_args)
-  newargs=$(printf '%s %s' "$args" "$ARM64E_FLAG" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-  /usr/sbin/nvram boot-args="$newargs"
-  log "boot-args set to: $newargs (reboot to apply)"
+	require_root "arm64e on"
+	if [ "$(arm64e_state)" = on ]; then
+		log "arm64e ABI already enabled"
+		return 0
+	fi
+	args=$(current_boot_args)
+	newargs=$(printf '%s %s' "$args" "$ARM64E_FLAG" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+	/usr/sbin/nvram boot-args="$newargs"
+	log "boot-args set to: $newargs (reboot to apply)"
 }
 
 # ---------------------------------------------------------------------------- status
 
 status() {
-  echo "host=$(host_process)"
+	echo "host=$(host_process)"
 
-  env_val=$(launchctl getenv "$DYLD_VAR" 2>/dev/null || true)
-  if [ -f "$AGENT_PLIST" ]; then echo "dyld_agent=present"; else echo "dyld_agent=absent"; fi
-  if [ -n "$env_val" ]; then echo "dyld_env=set"; else echo "dyld_env=unset"; fi
-  if dyld_is_active "$env_val"; then dyld=on; else dyld=off; fi
-  echo "dyld=$dyld"
+	env_val=$(launchctl getenv "$DYLD_VAR" 2>/dev/null || true)
+	if [ -f "$AGENT_PLIST" ]; then echo "dyld_agent=present"; else echo "dyld_agent=absent"; fi
+	if [ -n "$env_val" ]; then echo "dyld_env=set"; else echo "dyld_env=unset"; fi
+	if dyld_is_active "$env_val"; then dyld=on; else dyld=off; fi
+	echo "dyld=$dyld"
 
-  if [ -d "$MIP_ROOT" ]; then echo "mip_installed=yes"; else echo "mip_installed=no"; fi
-  if [ -d "$MIP_BUNDLES/$MIP_BUNDLE_NAME" ]; then mipb=on; else mipb=off; fi
-  echo "mip_bundle=$mipb"
+	if [ -d "$MIP_ROOT" ]; then echo "mip_installed=yes"; else echo "mip_installed=no"; fi
+	if [ -d "$MIP_BUNDLES/$MIP_BUNDLE_NAME" ]; then mipb=on; else mipb=off; fi
+	echo "mip_bundle=$mipb"
+	if mip_daemon_alive; then echo "mip_daemon=up"; else echo "mip_daemon=down"; fi
 
-  if [ "$mipb" = on ]; then active=mip
-  elif [ "$dyld" = on ]; then active=dyld
-  else active=none; fi
-  echo "arm64e=$(arm64e_state)"
-  echo "active=$active"
+	if [ "$mipb" = on ] && mip_daemon_alive; then
+		active=mip
+	elif [ "$dyld" = on ]; then
+		active=dyld
+	else active=none; fi
+	echo "arm64e=$(arm64e_state)"
+	echo "active=$active"
 }
 
 # ---------------------------------------------------------------------------- dispatch
 
 cmd=${1:-status}
 case "$cmd" in
-  status) status ;;
-  host)   host_process ;;
-  dyld)
-    sub=${2:-}
-    case "$sub" in
-      on)   dyld_on "${3:-}" ;;
-      off)  dyld_off ;;
-      boot) dyld_boot ;;
-      *)    die "usage: injector.sh dyld on <dylib> | off" ;;
-    esac ;;
-  arm64e)
-    sub=${2:-}
-    case "$sub" in
-      on)   arm64e_on ;;
-      *)    die "usage: injector.sh arm64e on  (root)" ;;
-    esac ;;
-  mip)
-    sub=${2:-}
-    case "$sub" in
-      on)  mip_on "${3:-}" ;;
-      off) mip_off ;;
-      *)   die "usage: injector.sh mip on <.bundle> | off  (root)" ;;
-    esac ;;
-  *) die "usage: injector.sh {status|host|dyld|mip|arm64e} ..." ;;
+status) status ;;
+host) host_process ;;
+dyld)
+	sub=${2:-}
+	case "$sub" in
+	on) dyld_on "${3:-}" ;;
+	off) dyld_off ;;
+	boot) dyld_boot ;;
+	*) die "usage: injector.sh dyld on <dylib> | off" ;;
+	esac
+	;;
+arm64e)
+	sub=${2:-}
+	case "$sub" in
+	on) arm64e_on ;;
+	*) die "usage: injector.sh arm64e on  (root)" ;;
+	esac
+	;;
+mip)
+	sub=${2:-}
+	case "$sub" in
+	on) mip_on "${3:-}" ;;
+	off) mip_off ;;
+	*) die "usage: injector.sh mip on <.bundle> | off  (root)" ;;
+	esac
+	;;
+*) die "usage: injector.sh {status|host|dyld|mip|arm64e} ..." ;;
 esac
