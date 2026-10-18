@@ -132,11 +132,41 @@ BOOL _ZKSwizzle(Class src, Class dest) {
   }
   
   if ([classTable objectForKey:NSStringFromClass(src)]) {
-    [NSException raise:@"Invalid Argument"
-                format:@"This source class (%@) was already swizzled with another, (%@)", NSStringFromClass(src), classTable[NSStringFromClass(src)]];
+    // Idempotency: this dylib may be loaded twice (DYLD + MIP, or re-inject
+    // without a host restart). classTable is per-process, so a second
+    // instance would silently invert the swizzle via
+    // method_exchangeImplementations. Detect our own prior swizzle by
+    // comparing the destination selector's implementation against this
+    // dylib's own source-class methods. If already swizzled by us, return
+    // YES; otherwise skip with a log instead of crashing the host.
+    BOOL alreadySwizzled = NO;
+    unsigned int methodCount;
+    Method *methodList = class_copyMethodList(src, &methodCount);
+    for (unsigned int i = 0; i < methodCount; i++) {
+      SEL selector = method_getName(methodList[i]);
+      if (sel_isEqual(selector, @selector(_ZK_unconditionallySwizzle)) ||
+          sel_isEqual(selector, @selector(_ZK_ignoreTypes))) {
+        continue;
+      }
+      Method destMethod = class_getInstanceMethod(dest, selector);
+      if (destMethod != NULL &&
+          method_getImplementation(destMethod) == method_getImplementation(methodList[i])) {
+        alreadySwizzled = YES;
+        break;
+      }
+    }
+    free(methodList);
+    if (alreadySwizzled) {
+      return YES;
+    }
+    // A different source class previously swizzled this destination; do not
+    // overwrite it. Fail by returning NO instead of crashing the host.
+    NSString *priorSource = [classTable objectForKey:NSStringFromClass(src)];
+    NSLog(@"ZKSwizzle: source class (%@) was already swizzled by another source (%@); skipping",
+         NSStringFromClass(src), priorSource);
     return NO;
   }
-  
+
   BOOL success = enumerateMethods(dest, src);
   success     &= enumerateMethods(object_getClass(dest), object_getClass(src));
   

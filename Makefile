@@ -7,12 +7,17 @@ MANPAGE := .build/man/sr.1
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 1.0.1)
 BUILD ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 SWIFT_BUILD := swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64
+# --show-bin-path triggers the build and prints the output directory, so the
+# binary is produced exactly once (at parse time) instead of building again
+# when the app target copies it.
 SPM_BIN := $(shell $(SWIFT_BUILD) --show-bin-path)/SpacesRenamer
 
 .PHONY: app app-tahoe app-gg plugin bundle package-injection universal dmg background man verify inject clean test
 
 app: bundle man
-	$(SWIFT_BUILD)
+	# The Swift binary is already built at parse time (SPM_BIN uses
+	# `$(shell ... --show-bin-path)`); the previous `$(SWIFT_BUILD)` here
+	# rebuilt it a second time.
 	# Assemble the app bundle by hand; SwiftPM emits a bare executable.
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
@@ -89,7 +94,7 @@ app-gg: bundle man
 	./scripts/embed-injection.sh "$(APP)"
 
 plugin:
-	$(XCODEBUILD) -scheme spaces-renamer 'ARCHS=arm64e x86_64' build
+	$(XCODEBUILD) -scheme spaces-renamer 'ARCHS=arm64e x86_64' 'SPACES_RENAMER_BUILD_NUMBER=$(BUILD)' build
 
 package-injection: plugin
 	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" -thin arm64e -output injection/lib/spaces-renamer.dylib
@@ -145,7 +150,7 @@ verify:
 	# The legacy run.sh/dylinject layout must no longer be embedded.
 	test ! -e "$(APP)/Contents/Resources/Injection"
 	# The narrow MIP path must be preferred when MIP is installed.
-	grep -q 'mipAvailable ? .mip : .dyld' "SpacesRenamer/Injector.swift"
+	grep -Fq 'mipAvailable ? .mip : .dyld' "SpacesRenamer/Injector.swift"
 
 test:
 	./scripts/tests/test_release_notes.sh

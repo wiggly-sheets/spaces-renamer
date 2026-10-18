@@ -63,7 +63,7 @@ static void testRemovingNameRestoresDefaultLabel(void) {
           @"KVO must not retain the stale custom string");
   require(objc_getAssociatedObject(textLayer, &OVERRIDDEN_WIDTH) == nil,
           @"the custom width should be cleared");
-  require(objc_getAssociatedObject(textLayer.superlayer, &TYPE) == nil,
+  require(objc_getAssociatedObject(textLayer, &TYPE) == nil,
           @"the custom layout type should be cleared");
 }
 

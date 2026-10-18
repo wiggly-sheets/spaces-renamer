@@ -286,18 +286,14 @@ static BOOL overrideTextLayer(CALayer *view, NSString *newString, double width, 
       assign(textLayer, &ORIGINAL_STRING, currentString);
     }
 
-    CALayer *parent = textLayer.superlayer;
-    changed |= assignIfChanged(parent, &OVERRIDDEN_STRING, newString);
-    changed |= assignIfChanged(parent, &TYPE, type);
+    // OVERRIDDEN_STRING/OVERRIDDEN_WIDTH/TYPE are stored on the textLayer
+    // only: enforceTextLayerOverride reads them there, and the parent/sublayer
+    // fan-out used to leave the parent's copy stale after applySpacesBarLabel
+    // rewrote the textLayer directly. Keep a single source of truth.
+    changed |= assignIfChanged(textLayer, &OVERRIDDEN_STRING, newString);
+    changed |= assignIfChanged(textLayer, &TYPE, type);
     if (width != -1) {
-      changed |= assignIfChanged(parent, &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
-    }
-    for (CALayer *sublayer in parent.sublayers) {
-      changed |= assignIfChanged(sublayer, &OVERRIDDEN_STRING, newString);
-      changed |= assignIfChanged(sublayer, &TYPE, type);
-      if (width != -1) {
-        changed |= assignIfChanged(sublayer, &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
-      }
+      changed |= assignIfChanged(textLayer, &OVERRIDDEN_WIDTH, [NSNumber numberWithDouble:width]);
     }
     if (![textLayer.string isEqual:newString]) {
       textLayer.string = newString;
@@ -313,7 +309,6 @@ static BOOL clearTextLayerOverride(CALayer *view) {
     return NO;
   }
 
-  CALayer *parent = textLayer.superlayer;
   if (
     objc_getAssociatedObject(textLayer, &OVERRIDDEN_STRING) == nil
     && objc_getAssociatedObject(textLayer, &ORIGINAL_STRING) == nil
@@ -322,14 +317,9 @@ static BOOL clearTextLayerOverride(CALayer *view) {
   }
 
   BOOL changed = NO;
-  changed |= assignIfChanged(parent, &OVERRIDDEN_STRING, nil);
-  changed |= assignIfChanged(parent, &OVERRIDDEN_WIDTH, nil);
-  changed |= assignIfChanged(parent, &TYPE, nil);
-  for (CALayer *sublayer in parent.sublayers) {
-    changed |= assignIfChanged(sublayer, &OVERRIDDEN_STRING, nil);
-    changed |= assignIfChanged(sublayer, &OVERRIDDEN_WIDTH, nil);
-    changed |= assignIfChanged(sublayer, &TYPE, nil);
-  }
+  changed |= assignIfChanged(textLayer, &OVERRIDDEN_STRING, nil);
+  changed |= assignIfChanged(textLayer, &OVERRIDDEN_WIDTH, nil);
+  changed |= assignIfChanged(textLayer, &TYPE, nil);
 
   id originalString = objc_getAssociatedObject(textLayer, &ORIGINAL_STRING);
   if (originalString != nil && ![textLayer.string isEqual:originalString]) {
@@ -1040,7 +1030,11 @@ ZKSwizzleInterface(_SRECTextLayer, ECTextLayer, CATextLayer);
             layoutChanged = YES;
             [viewsNeedingRefresh addObject:unexpandedViews[i]];
           }
-          unexpandedOffset += (textSize - getTextLayer(unexpandedViews[i]).bounds.size.width);
+          CATextLayer *unexpandedTextLayer = getTextLayer(unexpandedViews[i]);
+          double unexpandedWidth = unexpandedTextLayer != nil
+            ? unexpandedTextLayer.bounds.size.width
+            : 0.0;
+          unexpandedOffset += (textSize - unexpandedWidth);
         }
       } else {
         if (i < expandedViews.count) {
