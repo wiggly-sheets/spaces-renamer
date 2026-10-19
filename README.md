@@ -15,7 +15,7 @@
     <a href="https://github.com/wiggly-sheets/spaces-renamer/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/wiggly-sheets/spaces-renamer/release.yml?label=release" alt="Release workflow status" /></a>
     <a href="https://github.com/wiggly-sheets/spaces-renamer/releases"><img src="https://img.shields.io/github/v/release/wiggly-sheets/spaces-renamer?label=latest" alt="Latest release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/wiggly-sheets/spaces-renamer" alt="License" /></a>
-    <img src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple" alt="macOS 14 or later" />
+    <img src="https://img.shields.io/badge/macOS-14%2B-Apple%20silicon-000000?logo=apple" alt="macOS 14 or later, Apple silicon" />
   </p>
 
   <p>
@@ -53,7 +53,7 @@ It is a native macOS menu-bar app paired with a small bundle injected into the p
 - Configurable global hotkey (Control–Option–R by default)
 - Launch at login, a bundled `sr` command-line tool, deeplinks, and a live TOML config file
 - Two injection backends: **DYLD** (per-user, no root) and **MIP** (system-wide, survives reboot)
-- Universal app (`arm64` + `x86_64`) and Dock bundle (`arm64e` + `x86_64`)
+- Apple silicon only: menu-bar app (`arm64`), Dock bundle and injection payload (`arm64e`)
 
 Generated naming modes require [yabai](https://github.com/koekeishiya/yabai). Apps mode deliberately filters out background, minimized, hidden, zero-sized, and placeholder windows so labels reflect the apps you are actually using.
 
@@ -63,7 +63,7 @@ Generated naming modes require [yabai](https://github.com/koekeishiya/yabai). Ap
 
 ### Download the app
 
-macOS 14 or later. Apple silicon is required for Mission Control renaming, but the app itself runs on `arm64` and `x86_64`.
+macOS 14 or later on an Apple silicon Mac. Intel builds are no longer provided: the injected hook must be `arm64e`, which Apple silicon hosts require.
 
 1. Download `SpacesRenamer-v{VERSION}.dmg` from [GitHub Releases](https://github.com/wiggly-sheets/spaces-renamer/releases/latest).
 2. Open the DMG and drag **SpacesRenamer.app** to **Applications**.
@@ -80,6 +80,8 @@ brew tap wiggly-sheets/homebrew-tap
 brew trust wiggly-sheets/homebrew-tap
 brew install --cask spacesrenamer
 ```
+
+The cask declares `depends_on arch: :arm64`, so `brew install --cask` refuses an Intel Mac with a clear message instead of installing an app that cannot work.
 
 ### Enable Mission Control names
 
@@ -133,6 +135,8 @@ sudo make install
 ### Bundled injection runtime
 
 The app carries a private build of MIP in `Contents/Resources/mip`—`injectd`, `loader.dylib`, `lsdinjector.dylib`, `inject` and two LaunchDaemon templates. It is committed prebuilt, so a fresh Mac needs nothing but `SpacesRenamer.app`: no compiler, no GNU binutils, no separate MIP install. The app copies the runtime into `/Library/SpacesRenamer/mip`, registers its own two LaunchDaemons (`com.wiggly-sheets.spaces-renamer.injectd` and `com.wiggly-sheets.spaces-renamer.lsdinjector`) and owns its own Mach service.
+
+The runtime is `arm64e`, like the hook it loads into the host.
 
 Your own MIP install is left untouched: the private runtime installs into its own root, keeps its own Mach service and chains onto the `launchservicesd` hook instead of replacing it, so both can run side by side. The DYLD path stays available as an explicit fallback for anyone who does not want a root install at all.
 
@@ -248,32 +252,34 @@ For external profile management, Spaces Renamer watches `~/.config/spacesrenamer
 
 ## Building from source
 
-Requirements: macOS 14+, Xcode 15+, and [`scdoc`](https://git.sr.ht/~emersion/scdoc).
+Requirements: macOS 14+ on an Apple silicon Mac, Xcode 15+, and [`scdoc`](https://git.sr.ht/~emersion/scdoc).
 
 ```bash
 brew install scdoc
 git clone https://github.com/wiggly-sheets/spaces-renamer.git
 cd spaces-renamer
-make universal
+make build-all
 ```
 
-`make universal` builds the app and Dock bundle, packages the current arm64e injection payload, and verifies all architecture slices.
+`make build-all` builds the app and Dock bundle, packages the current arm64e injection payload, and verifies the arm-only slices.
 
 | Artifact | Architectures |
 | --- | --- |
-| `SpacesRenamer.app` | `arm64`, `x86_64` |
-| `spaces-renamer.dylib` | `arm64e`, `x86_64` |
+| `SpacesRenamer.app` | `arm64` |
+| `spaces-renamer.dylib` | `arm64e` |
 | `injection/lib/spaces-renamer.dylib` | `arm64e` |
+| `injection/mip` (private MIP runtime) | `arm64e` |
 
 Useful targets:
 
 ```bash
+make build-all         # Build both products, package the payload, verify
 make app                # Build the menu-bar app
 make plugin             # Build the Dock bundle
 make package-injection  # Refresh the arm64e payload
 make bundle             # Assemble the MIP bundle
 make inject             # Activate DYLD manually (injector.sh dyld on)
-make verify             # Verify all architecture slices and embedded payload
+make verify             # Verify the arm-only slices and embedded payload
 make dmg VERSION=1.0.0  # Create a distributable DMG
 make test               # Run repository contract tests
 ```
@@ -284,7 +290,7 @@ The injected bundle uses private macOS APIs inside the Spaces-bar host. Mission 
 
 Injecting code into a system process requires reduced macOS security protections, which this project does not hide:
 
-- **Apple silicon** (the host processes are arm64e binaries).
+- **Apple silicon** (the app is `arm64`, and the host processes are `arm64e` binaries).
 - **SIP disabled** or reduced so filesystem, debugging, and NVRAM protections are off. Only you can change this, from Recovery.
 - **The `-arm64e_preview_abi` boot argument**, which the app can add for you via an administrator prompt. It takes effect on the next reboot.
 

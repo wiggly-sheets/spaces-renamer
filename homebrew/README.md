@@ -31,5 +31,5 @@ Stable releases are automatic: tagging `vX.Y.Z` updates `version` and
 master, and pushes the same file into the consolidated tap's `Casks/`
 directory. No manual steps are required.
 
-See `docs/release.md` for the full release process, including the manual
-Intel pre-release check.
+See `docs/release.md` for the full release process. The cask is Apple silicon
+only (`depends_on arch: :arm64`), so Homebrew refuses an Intel Mac.

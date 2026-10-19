@@ -13,7 +13,11 @@ Keep this split. Swift is appropriate for application state and UI, while the
 injected bundle should remain Objective-C because it hooks private Objective-C
 classes and `CALayer` methods inside Dock.
 
-The supported deployment target is macOS 14 or newer.
+The supported deployment target is macOS 14 or newer on Apple silicon. The
+product is Apple silicon only: the injected hook must be `arm64e`, because
+Apple silicon system hosts are `arm64e` and reject a plain `arm64` dylib. An
+`x86_64` build could never rename anything. The architecture, not the macOS
+version, is the constraint.
 
 ## Repository Layout
 
@@ -93,8 +97,10 @@ The supported deployment target is macOS 14 or newer.
   - Feeds `make bundle` for the MIP bundle.
 - `Makefile`
   - Canonical local build and architecture verification commands.
-  - `app` builds the SwiftPM package via xcodebuild and hand-assembles the app
-    bundle; `plugin` stays xcodebuild.
+  - `app` builds the SwiftPM package via xcodebuild for `arm64` and
+    hand-assembles the app bundle; `plugin` stays xcodebuild (`arm64e`).
+  - `build-all` builds both products, refreshes the tracked payload and runs
+    architecture verification.
 
 ## Build and Verification
 
@@ -106,27 +112,42 @@ make plugin
 make package-injection
 make bundle
 make inject
-make universal
+make build-all
 make verify
 ```
 
 Expected architectures:
 
-- GUI app: `arm64 x86_64`
-- Dock bundle: `arm64e x86_64`
+- GUI app: `arm64`
+- Dock bundle: `arm64e`
 - Packaged injector payload: `arm64e`
+- Private MIP runtime (`injectd`, `loader.dylib`, `lsdinjector.dylib`,
+  `inject`): `arm64e`
 
-`make app` builds the SwiftPM package with xcodebuild in one pass over both
-architectures and hand-assembles the app bundle at `.build/SpacesRenamer.app`.
+`make app` builds the SwiftPM package with xcodebuild in one pass for `arm64`
+and hand-assembles the app bundle at `.build/SpacesRenamer.app`.
 `make bundle` assembles the MIP bundle and `make inject` runs the manual
 `injection/injector.sh dyld on` path. `make plugin` stays xcodebuild.
 
-Do not build the app with `swift build --arch arm64 --arch x86_64`: that path
-fails on the CI runner's toolchain with a duplicate-output-file error.
+The app build is a single xcodebuild pass:
+
+```bash
+xcodebuild -scheme SpacesRenamer -configuration Release \
+  -destination 'generic/platform=macOS' \
+  ARCHS='arm64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
+```
+
+`make app` is the only app target. The old `make app-tahoe` (a duplicate of
+`make app`) and `make app-gg` (an unused macOS 27-only experiment whose
+Info.plist deployment target of 27.0 disagreed with the binary it shipped,
+built at 14.0) are gone. The macOS deployment target stays 14.0.
+
+Do not build the app with `swift build`: use `make app`.
 
 `make package-injection` extracts the current arm64e slice into
-`injection/lib/spaces-renamer.dylib`. `make universal` builds both products,
-updates that payload, and runs architecture verification.
+`injection/lib/spaces-renamer.dylib`. `make build-all` builds both products,
+updates that payload, and runs architecture verification. It replaces the old
+`make universal` target: nothing is universal any more.
 
 The build uses `CODE_SIGNING_ALLOWED=NO`, so local products are ad-hoc or
 linker-signed. Do not assume a stable Developer ID signature is present.
@@ -134,7 +155,7 @@ linker-signed. Do not assume a stable Developer ID signature is present.
 Before committing, run at minimum:
 
 ```bash
-make universal
+make build-all
 git diff --check
 ```
 
@@ -390,8 +411,9 @@ In priority order:
     the same file to the tap repo `wiggly-sheets/homebrew-tap`
     (`Casks/spacesrenamer.rb`) using the existing `GH_TOKEN` secret.
   - Post-release tap-test job (non-gating): `brew tap` + `brew install --cask`
-    + version assert on the arm64 CI runner; Intel stays a documented manual
-    pre-release check.
+    + version assert on the arm64 CI runner. The cask declares
+    `depends_on arch: :arm64`, so Intel Macs are refused instead of installing
+    an app that cannot work.
   - Release notes extracted from `CHANGELOG.md`; generic fallback; never fail
     the release over missing changelog text.
   - `--prerelease` only for prerelease tags (tag contains `-`).

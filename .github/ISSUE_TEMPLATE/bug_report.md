@@ -10,7 +10,7 @@ A clear and concise description of what the bug is.
 **Versions**  
 1. Spaces Renamer version -
 2. macOS version -
-3. Mac architecture (`arm64` or `x86_64`) -
+3. Mac architecture (`arm64`, Apple silicon; the app does not run on Intel) -
 
 **Command Outputs**  
 Please paste the output of running these commands in Terminal:

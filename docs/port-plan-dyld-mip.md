@@ -386,9 +386,11 @@ The JSON `/tmp` handshake (and the `com.wiggly-sheets.SpacesRenamer.Injected` di
 > --check` is clean.
 
 - [x] `swift build` succeeds
-- [x] `make app` produces `.build/SpacesRenamer.app` (arm64 x86_64)
+- [x] `make app` produces `.build/SpacesRenamer.app` (`arm64` only now, as of
+      the arm-only cut; it was `arm64 x86_64` then)
 - [x] `make app-xcode` builds (backward compatibility)
-- [x] `make universal` builds both architectures
+- [x] `make build-all` builds both products and runs the architecture checks
+      (it replaces the old `make universal`, which is gone)
 - [x] `make verify` passes
 - [x] All tests pass (except known pre-existing `test_make_dmg.sh` background-hash diff; `test_settings_contracts.sh` 45/45)
 - [x] `git diff --check` clean

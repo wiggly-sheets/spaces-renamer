@@ -134,7 +134,7 @@ install usually already disabled it).
 /Library/SpacesRenamer/mip/
 ├── inject                     # private CLI (upstream's `inject`)
 ├── injectd                    # private Mach service daemon
-├── loader.dylib               # universal (arm64e + x86_64)
+├── loader.dylib               # arm64e (the shipped slice is thinned by `make mip`)
 ├── lsdinjector.dylib          # arm64e, hooks launchservicesd
 ├── user_data/<uid>/           # per-user settings (no ~/Library/MIP symlink)
 └── Bundles/

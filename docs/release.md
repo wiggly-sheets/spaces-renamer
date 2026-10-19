@@ -24,10 +24,15 @@ Cutting a release is two manual steps (prepare, tag); the Release workflow in
    drop-link — no stray files.
 4. Commit and push the version bump and changelog.
 
-## Manual Intel (x86_64) pre-release check
+## Apple silicon only
 
-The automated tap test runs only on the arm64 runner. Before cutting a stable
-release, manually verify the tap on an Intel Mac:
+The release ships one architecture per binary: `arm64` for the menu-bar app,
+`arm64e` for the Dock hook, the injection payload and the bundled MIP runtime.
+The cask declares `depends_on arch: :arm64`, so `brew install --cask` refuses
+an Intel Mac instead of installing an app that cannot work.
+
+The tap test on the arm64 runner is the only automated install check. To
+reproduce it locally on an Apple silicon Mac:
 
 ```bash
 brew tap wiggly-sheets/homebrew-tap
@@ -37,9 +42,7 @@ brew install --cask spacesrenamer
   /Applications/SpacesRenamer.app/Contents/Info.plist
 ```
 
-The installed version must equal the release tag version. The app bundle and
-Dock injection payload are universal binaries, but this manual check is the
-only thing that exercises the Intel install path.
+The installed version must equal the release tag version.
 
 ## Publish
 
@@ -50,7 +53,7 @@ git push origin v1.0.0
 
 The Release workflow then:
 
-1. builds the universal app + injection bundle;
+1. builds the arm64 app + arm64e injection bundle;
 2. packages `SpacesRenamer-v1.0.0.dmg` (via `packaging/make-dmg.sh`) plus a
    `.sha256` sidecar, named exactly as the Homebrew cask expects;
 3. creates the GitHub Release with the CHANGELOG section as the notes
