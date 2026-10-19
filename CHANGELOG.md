@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Only the copy installed in /Applications publishes Space names and the monitor layout into the live `com.apple.dock` preference domain, so staging builds can no longer blank the Dock's Space names. A staging build that must drive the real hook opts in with `-publishDockNames YES`.
+
 ### Fixed
 
 - The app no longer crashes at launch on macOS 27: the menu bar label now receives the observed stores it reads, instead of trapping with "No Observable object of type PreferencesStore found".

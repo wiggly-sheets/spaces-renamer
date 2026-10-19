@@ -157,6 +157,23 @@ assert_absent "embed script does not reference run.sh" 'run.sh' "$EMBED_SCRIPT"
 assert_fixed "preferences publish the names mapping" 'SpacesRenamerNames' "$PREFERENCES"
 assert_fixed "SpaceStore publishes the monitors snapshot" 'SpacesRenamerMonitors' "$SPACE_STORE"
 
+assert_fixed \
+  "preferences use the dock publishing policy" \
+  'publishesToDockDomain: NativeAppManagement.publishesToDockNames' \
+  "$PREFERENCES"
+assert_fixed \
+  "SpaceStore uses the dock publishing policy" \
+  'publishesToDockDomain: NativeAppManagement.publishesToDockNames' \
+  "$SPACE_STORE"
+assert_absent \
+  "preferences do not hardcode dock publishing" \
+  'publishesToDockDomain: true' \
+  "$PREFERENCES"
+assert_absent \
+  "SpaceStore does not hardcode dock publishing" \
+  'publishesToDockDomain: true' \
+  "$SPACE_STORE"
+
 echo
 echo "$pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

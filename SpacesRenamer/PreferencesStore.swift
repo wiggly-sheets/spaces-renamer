@@ -116,7 +116,7 @@ final class PreferencesStore {
     try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
     self.init(
       fileURL: support.appendingPathComponent("preferences.json"),
-      publishesToDockDomain: true
+      publishesToDockDomain: NativeAppManagement.publishesToDockNames
     )
   }
 
@@ -464,6 +464,13 @@ final class PreferencesStore {
 enum NativeAppManagement {
   static var isInApplicationsFolder: Bool {
     Bundle.main.bundleURL.path.hasPrefix("/Applications/")
+  }
+
+  /// Live `com.apple.dock` writes belong to the installed copy only, so a
+  /// staging build cannot clobber the Dock's Space names. A staging build that
+  /// must drive the real hook opts in with `-publishDockNames YES`.
+  static var publishesToDockNames: Bool {
+    isInApplicationsFolder || UserDefaults.standard.bool(forKey: "publishDockNames")
   }
 
   /// Returns true when a copy in /Applications is being launched and this

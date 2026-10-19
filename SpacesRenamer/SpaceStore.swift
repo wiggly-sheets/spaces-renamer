@@ -77,7 +77,7 @@ final class SpaceStore {
   private var publishesToDockDomain: Bool
 
   convenience init() {
-    self.init(publishesToDockDomain: true)
+    self.init(publishesToDockDomain: NativeAppManagement.publishesToDockNames)
   }
 
   /// Test seam: points the monitor layout at the injected bundle off.

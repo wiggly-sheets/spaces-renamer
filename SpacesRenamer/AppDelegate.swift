@@ -249,6 +249,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.setActivationPolicy(.accessory)
     ProcessInfo.processInfo.disableAutomaticTermination("Spaces Renamer provides a persistent menu-bar item")
 
+    if !NativeAppManagement.publishesToDockNames {
+      NSLog("Spaces Renamer: this copy is not installed in /Applications, so Space names are not published to the Dock. Run with -publishDockNames YES to override.")
+    }
+
     installCLISymlink()
     installManPageSymlink()
     _ = configFile
