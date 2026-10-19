@@ -7,17 +7,17 @@ MANPAGE := .build/man/sr.1
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 1.0.1)
 BUILD ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 SWIFT_BUILD := swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64
-# --show-bin-path triggers the build and prints the output directory, so the
-# binary is produced exactly once (at parse time) instead of building again
-# when the app target copies it.
+# --show-bin-path only prints the output directory; it never compiles. The
+# app target runs $(SWIFT_BUILD) before it copies the binary, so the bundle
+# can never contain a stale build.
 SPM_BIN := $(shell $(SWIFT_BUILD) --show-bin-path)/SpacesRenamer
 
 .PHONY: app app-tahoe app-gg plugin bundle package-injection universal dmg background man verify inject clean test
 
 app: bundle man
-	# The Swift binary is already built at parse time (SPM_BIN uses
-	# `$(shell ... --show-bin-path)`); the previous `$(SWIFT_BUILD)` here
-	# rebuilt it a second time.
+	# Build the Swift binary for the architectures the app ships (arm64 and
+	# x86_64) before copying it; SPM_BIN only supplies the output path.
+	$(SWIFT_BUILD)
 	# Assemble the app bundle by hand; SwiftPM emits a bare executable.
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
@@ -131,7 +131,7 @@ man:
 
 verify:
 	# One -verify_arch per invocation: the multi-arch form trips
-	# `lipo: -verify_arch requires exactly one input file` on this machine.
+	# "lipo: -verify_arch requires exactly one input file" on this machine.
 	lipo "$(APP)/Contents/MacOS/SpacesRenamer" -verify_arch arm64
 	lipo "$(APP)/Contents/MacOS/SpacesRenamer" -verify_arch x86_64
 	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" -verify_arch arm64e
