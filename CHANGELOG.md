@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- The app no longer crashes at launch on macOS 27: the menu bar label now receives the observed stores it reads, instead of trapping with "No Observable object of type PreferencesStore found".
+
 ## 1.0.1 (2026-08-01)
 
 ### Changed

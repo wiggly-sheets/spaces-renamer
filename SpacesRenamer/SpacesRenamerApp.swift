@@ -17,6 +17,8 @@ struct SpacesRenamerApp: App {
         .environment(appDelegate.appModel)
     } label: {
       MenuBarLabelView()
+        .environment(appDelegate.preferences)
+        .environment(appDelegate.spaces)
     }
     .menuBarExtraStyle(.window)
     // Scene-root injection: every system-driven instantiation of this scene's
