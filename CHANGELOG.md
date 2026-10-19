@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.2 (2026-10-19)
+
 ### Added
 
 - The app now ships its own private MIP runtime: the prebuilt runtime is bundled with the app and installed on demand under `/Library/SpacesRenamer/mip`, so no separate MIP install is needed and a system MIP install stays untouched. The DYLD path remains available as an explicit fallback.
