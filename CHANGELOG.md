@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.1 (2026-10-19)
+
 ### Changed
 
 - The release is now Apple silicon only: the x86_64 slices were dropped from the app, the Dock hook and the bundled runtime.
