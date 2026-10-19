@@ -6,6 +6,7 @@
 
 - The app now ships its own private MIP runtime: the prebuilt runtime is bundled with the app and installed on demand under `/Library/SpacesRenamer/mip`, so no separate MIP install is needed and a system MIP install stays untouched. The DYLD path remains available as an explicit fallback.
 - Settings and Diagnostics now report the state of the injection runtime, and Settings offers a "Remove injection runtime" action that uninstalls the private runtime.
+- Diagnostics now shows a "LaunchAgent injector (backup)" check that reports whether the DYLD fallback is armed, so the backup path is visible next to the MIP one.
 
 ### Changed
 

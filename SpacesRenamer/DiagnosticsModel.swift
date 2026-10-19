@@ -1,6 +1,10 @@
 import AppKit
 import Observation
 
+/// Where `injector.sh` stages the DYLD payload. The script does not report whether the file
+/// is still there, so the check tests the path itself.
+private let dyldLibraryPath = NSHomeDirectory() + "/Library/Application Support/SpacesRenamer/spaces-renamer.dylib"
+
 /// A one-tap fix offered next to a failing check.
 enum RemedyAction: Equatable {
   /// Copy a Terminal command to the clipboard (used where macOS forbids automating the step).
@@ -17,7 +21,7 @@ enum RemedyAction: Equatable {
 }
 
 struct DiagnosticCheck: Identifiable {
-  enum Status {
+  enum Status: Equatable {
     case pass, fail, unknown
   }
 
@@ -38,13 +42,18 @@ struct DiagnosticCheck: Identifiable {
 final class DiagnosticsModel {
   nonisolated static let activationRemedy = "Turn on an injector in the Injection settings, then re-run checks."
 
-  private(set) var checks: [DiagnosticCheck] = [
-    DiagnosticCheck(title: "System Integrity Protection"),
-    DiagnosticCheck(title: "Boot arguments"),
-    DiagnosticCheck(title: "Injection runtime"),
-    DiagnosticCheck(title: "Plugin version"),
-    DiagnosticCheck(title: "Plugin active in host"),
+  /// The checks in display order. The placeholder list and a finished run share it, so the two
+  /// can never drift apart.
+  nonisolated static let checkTitles = [
+    "System Integrity Protection",
+    "Boot arguments",
+    "Injection runtime",
+    "LaunchAgent injector (backup)",
+    "Plugin version",
+    "Plugin active in host",
   ]
+
+  private(set) var checks: [DiagnosticCheck] = DiagnosticsModel.checkTitles.map { DiagnosticCheck(title: $0) }
   private(set) var isRunning = false
   /// Feedback for the most recent remedy button (a copy confirmation or an error).
   private(set) var actionNote: String?
@@ -97,9 +106,36 @@ final class DiagnosticsModel {
     }
   }
 
-  nonisolated private static func runAll() -> [DiagnosticCheck] {
+  nonisolated static func runAll() -> [DiagnosticCheck] {
     let marker = PluginMarker.current()
-    return [sip(), bootArgs(), injectionRuntime(), pluginVersion(marker), pluginActive(marker)]
+    // One status read feeds both injector checks, so the script runs once per pass.
+    let state = injectorStatus()
+    return [
+      sip(),
+      bootArgs(),
+      injectionRuntime(state),
+      launchAgentInjector(state: state, libraryStaged: dyldLibraryStaged()),
+      pluginVersion(marker),
+      pluginActive(marker),
+    ]
+  }
+
+  /// The injector status, read once per pass. A script that cannot be run yields a state that
+  /// carries the error, so both injector checks report it instead of showing stale facts.
+  nonisolated private static func injectorStatus() -> InjectorState {
+    do {
+      return try Injector.status()
+    } catch {
+      var fallback = InjectorState()
+      fallback.host = Injector.defaultHost
+      fallback.readError = error.localizedDescription
+      return fallback
+    }
+  }
+
+  /// True when the DYLD payload still sits where the LaunchAgent expects it.
+  nonisolated private static func dyldLibraryStaged() -> Bool {
+    FileManager.default.fileExists(atPath: dyldLibraryPath)
   }
 
   // MARK: - Checks
@@ -158,9 +194,9 @@ final class DiagnosticsModel {
     return check
   }
 
-  nonisolated private static func injectionRuntime() -> DiagnosticCheck {
+  nonisolated static func injectionRuntime(_ state: InjectorState) -> DiagnosticCheck {
     var check = DiagnosticCheck(title: "Injection runtime")
-    guard let state = try? Injector.status(), state.readError == nil else {
+    guard state.readError == nil else {
       check.finding = "Could not read the injector status"
       return check
     }
@@ -177,6 +213,35 @@ final class DiagnosticsModel {
     } else if state.runtimeInstalled == false {
       check.status = .fail
       check.remedy = activationRemedy
+    }
+    return check
+  }
+
+  /// The DYLD path is the backup injector, used only when the MIP path is unavailable. An
+  /// unarmed backup is therefore unknown, never a failure; only a broken arming fails.
+  nonisolated static func launchAgentInjector(state: InjectorState, libraryStaged: Bool) -> DiagnosticCheck {
+    var check = DiagnosticCheck(title: "LaunchAgent injector (backup)")
+    guard state.readError == nil else {
+      check.finding = "Could not read the injector status"
+      return check
+    }
+    let facts = "\(state.dyldAgent ? "login agent present" : "no login agent"), "
+      + "\(state.dyldEnv ? "environment set" : "environment unset"), "
+      + "\(libraryStaged ? "library staged" : "library not staged")"
+    if state.dyldOn {
+      if libraryStaged {
+        check.status = .pass
+        check.finding = "armed: \(facts)"
+      } else {
+        // The environment names a payload that is gone, so every app launched from now on
+        // would fail to load the library: broken, not unused.
+        check.status = .fail
+        check.finding = "broken: armed, but the staged library is missing (\(dyldLibraryPath))"
+        check.remedy = "Activate the LaunchAgent injector again to restage the library."
+      }
+    } else {
+      check.status = .unknown
+      check.finding = "not armed: \(facts). Backup path, used only when MIP is unavailable."
     }
     return check
   }
