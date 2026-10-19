@@ -4,24 +4,32 @@ XCODEBUILD := xcodebuild -project $(PROJECT) -configuration Release -derivedData
 # SwiftPM-assembled app.
 APP := .build/SpacesRenamer.app
 MANPAGE := .build/man/sr.1
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 1.0.1)
+# Resolved once, at parse time. The build regenerates tracked files (the
+# injection payload), so a lazily expanded `git describe` would read "-dirty"
+# in a tagged release build. A command line or environment VERSION still wins.
+# The leading "v" is dropped: the version lands in CFBundleShortVersionString
+# and in the DMG name, where the tag is used without it.
+ifndef VERSION
+VERSION := $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo 1.0.1))
+endif
 BUILD ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
-SWIFT_BUILD := swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64
-# --show-bin-path only prints the output directory; it never compiles. The
-# app target runs $(SWIFT_BUILD) before it copies the binary, so the bundle
-# can never contain a stale build.
-SPM_BIN := $(shell $(SWIFT_BUILD) --show-bin-path)/SpacesRenamer
+SPM_DIR := SpacesRenamer
+# The app binary comes from one xcodebuild pass over the SwiftPM package.
+# SwiftPM's own multi-architecture build (swift build --arch arm64 --arch
+# x86_64) fails on the CI runner's toolchain with a duplicate-output-file
+# error; xcodebuild builds the same package in a single pass.
+APP_BINARY := $(DERIVED_DATA)/Build/Products/Release/SpacesRenamer
 
 .PHONY: app app-tahoe app-gg plugin bundle package-injection mip universal dmg background man verify inject clean test
 
 app: bundle man
 	# Build the Swift binary for the architectures the app ships (arm64 and
-	# x86_64) before copying it; SPM_BIN only supplies the output path.
-	$(SWIFT_BUILD)
+	# x86_64) in one xcodebuild pass; the bundle below is assembled by hand.
+	cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$(CURDIR)/$(DERIVED_DATA)" ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 	# Assemble the app bundle by hand; SwiftPM emits a bare executable.
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
-	cp "$(SPM_BIN)" "$(APP)/Contents/MacOS/SpacesRenamer"
+	cp "$(APP_BINARY)" "$(APP)/Contents/MacOS/SpacesRenamer"
 	# Substitute the Xcode build-variable placeholders (the hand-assembled
 	# bundle has no Xcode build to expand them; an unresolved identifier also
 	# breaks codesign).

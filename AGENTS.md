@@ -101,10 +101,13 @@ Expected architectures:
 - Dock bundle: `arm64e x86_64`
 - Packaged injector payload: `arm64e`
 
-`make app` builds via SwiftPM (`swift build`) and hand-assembles the app bundle
-at `.build/SpacesRenamer.app`. `make bundle` assembles the MIP bundle and
-`make inject` runs the manual `injection/injector.sh dyld on` path. `make
-plugin` stays xcodebuild.
+`make app` builds the SwiftPM package with xcodebuild in one pass over both
+architectures and hand-assembles the app bundle at `.build/SpacesRenamer.app`.
+`make bundle` assembles the MIP bundle and `make inject` runs the manual
+`injection/injector.sh dyld on` path. `make plugin` stays xcodebuild.
+
+Do not build the app with `swift build --arch arm64 --arch x86_64`: that path
+fails on the CI runner's toolchain with a duplicate-output-file error.
 
 `make package-injection` extracts the current arm64e slice into
 `injection/lib/spaces-renamer.dylib`. `make universal` builds both products,

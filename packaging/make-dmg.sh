@@ -71,7 +71,7 @@ fi
 
 create-dmg \
   --volname "Spaces Renamer" \
-  "${VOLICON_ARGS[@]}" \
+  "${VOLICON_ARGS[@]+"${VOLICON_ARGS[@]}"}" \
   --background "$BACKGROUND" \
   --window-pos 200 120 \
   --window-size 800 450 \

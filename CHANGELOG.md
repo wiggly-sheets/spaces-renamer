@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 1.0.2 (2026-10-19)
+## 1.1.0 (2026-10-19)
 
 ### Added
 
@@ -21,6 +21,8 @@
 - Injection now repairs MIP's broken launchservicesd hook. MIP hooks launchservicesd through the one-shot boot job `local.lsdinjector`; when launchservicesd was replaced after that job ran, no process received `mip/loader.dylib`, the bundle was never loaded, and the stale plugin marker kept the app reporting "Renaming off" forever. The injector now probes the real daemon label (`local.injectd`), re-injects the hook into the running launchservicesd, and skips the repair when the hook is already there.
 - Injection now reports why it failed instead of only "Renaming off": the injector output and the error message are shown in Settings and in the menu bar popover, and the automatic injection waits for the host to load the bundle before asking for administrator approval, so a login no longer prompts for elevation.
 - `make app` no longer ships a stale binary: the app target now compiles a real release build for both architectures before copying the binary into the bundle.
+- The release build works on the CI runner again: `make app` builds the app with xcodebuild in a single pass over both architectures, because SwiftPM's own multi-architecture build fails on the runner's toolchain with a duplicate-output-file error.
+- A tagged release build no longer reports a `-dirty` version: the version is resolved once, before the build touches tracked files, so `CFBundleShortVersionString` reads the bare tag version.
 
 ## 1.0.1 (2026-08-01)
 
