@@ -12,7 +12,7 @@ SWIFT_BUILD := swift build --package-path SpacesRenamer -c release --arch arm64 
 # can never contain a stale build.
 SPM_BIN := $(shell $(SWIFT_BUILD) --show-bin-path)/SpacesRenamer
 
-.PHONY: app app-tahoe app-gg plugin bundle package-injection universal dmg background man verify inject clean test
+.PHONY: app app-tahoe app-gg plugin bundle package-injection mip universal dmg background man verify inject clean test
 
 app: bundle man
 	# Build the Swift binary for the architectures the app ships (arm64 and
@@ -110,6 +110,28 @@ bundle: package-injection
 	sed -e 's/__VERSION__/$(VERSION)/' -e 's/__BUILD__/$(BUILD)/' packaging/mip/Info.plist > build/SpacesRenamer.mip.bundle/Contents/Info.plist
 	cp injection/lib/spaces-renamer.dylib build/SpacesRenamer.mip.bundle/Contents/MacOS/SpacesRenamer
 
+# Rebuild the private MIP runtime from the vendored source. It is committed
+# prebuilt, so this is not part of the default build; see injection/mip/README.md.
+mip:
+	@command -v gobjcopy >/dev/null 2>&1 || { \
+		echo "error: gobjcopy not found; the MIP runtime needs GNU binutils" >&2; \
+		echo "       brew install binutils" >&2; \
+		echo "       export PATH=\"$$(brew --prefix binutils)/bin:$$PATH\"" >&2; \
+		exit 1; }
+	@echo "Rebuild command (injection/mip/README.md):"
+	@echo '  brew install binutils'
+	@echo '  export PATH="$$(brew --prefix binutils)/bin:$$PATH"'
+	@echo '  make -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd'
+	$(MAKE) -C third_party/mip/MIP BUILD_DIR="$(CURDIR)/.build/mip" \
+		MIP_ROOT=/Library/SpacesRenamer/mip \
+		MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd
+	cp .build/mip/injectd .build/mip/loader.dylib .build/mip/lsdinjector.dylib \
+		.build/mip/inject injection/mip/
+	# The templates keep the @MIP_ROOT@ and @MIP_SERVICE_NAME@ placeholders: the launcher
+	# substitutes them when it installs the runtime.
+	cp third_party/mip/MIP/spacesrenamer.injectd.plist \
+		third_party/mip/MIP/spacesrenamer.lsdinjector.plist injection/mip/
+
 # Manual DYLD activation for testing: copies the payload to ~/Library/Application
 # Support/SpacesRenamer and installs the LaunchAgent.
 inject:
@@ -144,19 +166,23 @@ verify:
 	test -d "$(APP)/Contents/Resources/SpacesRenamer.mip.bundle"
 	grep -q WindowManager "$(APP)/Contents/Resources/SpacesRenamer.mip.bundle/Contents/Info.plist"
 	grep -q Dock "$(APP)/Contents/Resources/SpacesRenamer.mip.bundle/Contents/Info.plist"
+	# The private MIP runtime travels with the app.
+	test -x "$(APP)/Contents/Resources/mip/injectd"
+	test -f "$(APP)/Contents/Resources/mip/spacesrenamer.injectd.plist"
 	test -f "$(APP)/Contents/Resources/man/man1/sr.1"
 	test -f "$(APP)/Contents/_CodeSignature/CodeResources"
 	codesign --verify --deep --strict --all-architectures "$(APP)"
 	# The legacy run.sh/dylinject layout must no longer be embedded.
 	test ! -e "$(APP)/Contents/Resources/Injection"
-	# The narrow MIP path must be preferred when MIP is installed.
-	grep -Fq 'mipAvailable ? .mip : .dyld' "SpacesRenamer/Injector.swift"
+	# The narrow MIP path must be preferred when a MIP runtime is available.
+	grep -Fq '(runtimeEmbedded || systemMIPAvailable) ? .mip : .dyld' "SpacesRenamer/Injector.swift"
 
 test:
 	./scripts/tests/test_release_notes.sh
 	./scripts/tests/test_bump_cask.sh
 	./scripts/tests/test_make_dmg.sh
 	./scripts/tests/test_embed_injection.sh
+	./scripts/tests/test_injector_runtime.sh
 	./scripts/tests/test_manpage.sh
 	./scripts/tests/test_settings_contracts.sh
 	./scripts/tests/test_cli.sh

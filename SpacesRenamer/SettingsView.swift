@@ -97,6 +97,12 @@ private struct InjectionSettingsView: View {
           .foregroundStyle(daemon ? Color.secondary : Color.red)
       }
 
+      Text(injection.runtimeSummary)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .textSelection(.enabled)
+        .help("The injection runtime in use, and what is missing from it.")
+
       Divider()
 
       Picker("Injection method", selection: Binding(
@@ -115,11 +121,15 @@ private struct InjectionSettingsView: View {
         .foregroundStyle(.secondary)
       if preferences.injectionMode == .auto {
         Text(resolved == .mip
-          ? "MIP is installed, so it is used."
-          : "MIP is not installed, so DYLD is used.")
+          ? "MIP is used, with \(injection.runtimeOrigin.captionName)."
+          : "DYLD is used, because no MIP runtime is available.")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
+
+      Text(injection.runtimeOriginCaption)
+        .font(.caption)
+        .foregroundStyle(.secondary)
 
       Button {
         if injection.state == .active {
@@ -134,6 +144,17 @@ private struct InjectionSettingsView: View {
       }
       .buttonStyle(.borderedProminent)
       .disabled(injection.operationInProgress)
+
+      if injection.runtimeInstalled == true {
+        Button(role: .destructive) {
+          injection.uninstallMIPRuntime()
+        } label: {
+          Label("Remove injection runtime", systemImage: "trash")
+        }
+        .controlSize(.small)
+        .disabled(injection.operationInProgress)
+        .help("Removes the private runtime in \(Injector.privateMIPRoot). It stays in the app, so it can be installed again.")
+      }
 
       HStack(spacing: 8) {
         Text("Launch Spaces Renamer at login")

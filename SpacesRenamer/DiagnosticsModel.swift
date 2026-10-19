@@ -32,7 +32,7 @@ struct DiagnosticCheck: Identifiable {
   var id: String { title }
 }
 
-/// The four environment checks the Spaces-bar plugin depends on. Checks run off the main thread.
+/// The environment checks the Spaces-bar plugin depends on. Checks run off the main thread.
 @MainActor
 @Observable
 final class DiagnosticsModel {
@@ -41,6 +41,7 @@ final class DiagnosticsModel {
   private(set) var checks: [DiagnosticCheck] = [
     DiagnosticCheck(title: "System Integrity Protection"),
     DiagnosticCheck(title: "Boot arguments"),
+    DiagnosticCheck(title: "Injection runtime"),
     DiagnosticCheck(title: "Plugin version"),
     DiagnosticCheck(title: "Plugin active in host"),
   ]
@@ -98,7 +99,7 @@ final class DiagnosticsModel {
 
   nonisolated private static func runAll() -> [DiagnosticCheck] {
     let marker = PluginMarker.current()
-    return [sip(), bootArgs(), pluginVersion(marker), pluginActive(marker)]
+    return [sip(), bootArgs(), injectionRuntime(), pluginVersion(marker), pluginActive(marker)]
   }
 
   // MARK: - Checks
@@ -153,6 +154,29 @@ final class DiagnosticsModel {
       check.finding = value.isEmpty || output.contains("Error") ? "boot-args not set" : "boot-args = \(value)"
       check.remedy = "Adds `-arm64e_preview_abi` to boot-args (keeping any existing flags) and takes effect after a restart."
       check.action = .enableARM64e
+    }
+    return check
+  }
+
+  nonisolated private static func injectionRuntime() -> DiagnosticCheck {
+    var check = DiagnosticCheck(title: "Injection runtime")
+    guard let state = try? Injector.status(), state.readError == nil else {
+      check.finding = "Could not read the injector status"
+      return check
+    }
+    check.finding = state.runtimeSummary
+    if state.runtimeInstalled == true {
+      if state.runtimeDaemon == true {
+        check.status = .pass
+      } else if state.runtimeDaemon == false {
+        check.status = .fail
+        check.remedy = "The runtime is installed, but its daemon is not running. Activate the injection again to start it."
+      } else {
+        check.status = .unknown
+      }
+    } else if state.runtimeInstalled == false {
+      check.status = .fail
+      check.remedy = activationRemedy
     }
     return check
   }

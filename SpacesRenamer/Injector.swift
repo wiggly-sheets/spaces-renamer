@@ -2,9 +2,10 @@ import AppKit
 import Observation
 
 /// User-facing preference for which injection mechanism to use. `auto` defers to the narrow
-/// MIP path when the framework is installed and falls back to DYLD otherwise; the explicit
-/// cases let a user override either way (for example, force DYLD when MIP is installed but
-/// broken, or force MIP for testing on a machine without the framework).
+/// MIP path when a MIP runtime is available — the app's own runtime or a system install — and
+/// falls back to DYLD otherwise; the explicit cases let a user override either way (for
+/// example, force DYLD when MIP is installed but broken, or force MIP for testing on a machine
+/// without the framework).
 enum InjectionMode: String, Codable, CaseIterable, Identifiable {
   case auto
   case mip
@@ -51,13 +52,44 @@ enum InjectorBackend: String, CaseIterable, Identifiable {
     case .dyld:
       "No root. A per-user LaunchAgent sets the variable and restarts the host at login. The library is loaded into every app you launch, where it does nothing."
     case .mip:
-      "Needs a working MIP (macOS Injection Platform) install and an admin password. Targets only the host and survives reboot with no login agent."
+      "Needs a MIP runtime and an admin password. It loads the bundle only into the host, so nothing else sees the dylib, and it survives reboot with no login agent."
     }
   }
 
-  /// The narrow path when MIP is installed: it loads the bundle only into the executables named
-  /// in the bundle's Info.plist, so nothing beyond Dock/WindowManager ever sees the dylib.
-  static var preferred: InjectorBackend { Injector.mipAvailable ? .mip : .dyld }
+  /// The narrow path when a MIP runtime is available: it loads the bundle only into the
+  /// executables named in the bundle's Info.plist, so nothing beyond Dock/WindowManager ever
+  /// sees the dylib.
+  static func preferred(runtimeEmbedded: Bool, systemMIPAvailable: Bool) -> InjectorBackend {
+    (runtimeEmbedded || systemMIPAvailable) ? .mip : .dyld
+  }
+
+  /// The backend for this machine. The private runtime that ships with the app wins, so a
+  /// system MIP install stays untouched.
+  static var preferred: InjectorBackend {
+    Self.preferred(
+      runtimeEmbedded: Injector.mipRuntimeEmbedded,
+      systemMIPAvailable: Injector.mipAvailable
+    )
+  }
+}
+
+/// Which MIP runtime the app injects through.
+enum MIPRuntimeOrigin: Equatable {
+  /// The private runtime that ships inside the app, installed under `/Library/SpacesRenamer/mip`.
+  case privateRuntime
+  /// The system-wide MIP install.
+  case systemMIP
+  /// No MIP runtime is available.
+  case none
+
+  /// Short name for captions.
+  var captionName: String {
+    switch self {
+    case .privateRuntime: return "the private runtime"
+    case .systemMIP: return "the system MIP install"
+    case .none: return "no MIP runtime"
+    }
+  }
 }
 
 /// Parsed output of `injector.sh status`.
@@ -75,6 +107,19 @@ struct InjectorState {
   /// Whether MIP's daemon is running, as reported by `mip_daemon=up|down`.
   /// Nil when the injector script did not report the key.
   var mipDaemon: Bool?
+  /// Root in use for MIP: our private runtime, the system MIP root, or the private root
+  /// the runtime would be installed into. Nil when the script did not report the key.
+  var runtimeRoot: String?
+  /// Whether our private runtime files are present.
+  var runtimeInstalled: Bool?
+  /// Whether our private runtime's daemon is running.
+  var runtimeDaemon: Bool?
+  /// Whether launchservicesd maps the runtime's loader.
+  var runtimeHooked: Bool?
+  /// Whether our bundle is installed in the active root.
+  var runtimeBundle: Bool?
+  /// Mach service in use, for example `com.wiggly-sheets.spaces-renamer.injectd`.
+  var runtimeService: String?
   var active: Active = .none
   /// Set when the injector script itself could not be read. Lets callers distinguish
   /// "status unknown" from "status read, nothing configured".
@@ -95,10 +140,36 @@ struct InjectorState {
       case "mip_installed": mipInstalled = value == "yes"
       case "mip_bundle": mipBundleOn = value == "on"
       case "mip_daemon": mipDaemon = value == "up"
+      case "runtime_root": runtimeRoot = value
+      case "runtime_installed": runtimeInstalled = value == "on"
+      case "runtime_daemon": runtimeDaemon = value == "up"
+      case "runtime_hooked": runtimeHooked = value == "on"
+      case "runtime_bundle": runtimeBundle = value == "on"
+      case "runtime_service": runtimeService = value
       case "active": active = Active(rawValue: value) ?? .none
       default: break
       }
     }
+  }
+
+  /// The runtime root, or a placeholder when the injector did not report one.
+  var runtimeRootDescription: String { runtimeRoot ?? "unknown root" }
+
+  /// The runtime facts, spelled out so a missing daemon or hook stays visible instead of
+  /// reading as "everything is fine".
+  var runtimeFacts: [String] {
+    [
+      runtimeInstalled.map { $0 ? "installed" : "not installed" } ?? "install state unknown",
+      runtimeDaemon.map { $0 ? "daemon running" : "daemon down" } ?? "daemon state unknown",
+      runtimeHooked.map { $0 ? "host hook on" : "host hook off" } ?? "host hook state unknown",
+      runtimeBundle.map { $0 ? "bundle installed" : "bundle not installed" } ?? "bundle state unknown",
+    ]
+  }
+
+  /// One line describing the runtime, for example
+  /// "Runtime: /Library/SpacesRenamer/mip (installed, daemon running, host hook on)".
+  var runtimeSummary: String {
+    "Runtime: \(runtimeRootDescription) (\(runtimeFacts.joined(separator: ", ")))"
   }
 }
 
@@ -263,7 +334,31 @@ enum Injector {
   /// injection path; DYLD_INSERT_LIBRARIES is global and loads the library into every GUI app
   /// launched while it is set.
   static var mipAvailable: Bool {
-    FileManager.default.fileExists(atPath: "/Library/Apple/System/Library/Frameworks/mip")
+    FileManager.default.fileExists(atPath: systemMIPRoot)
+  }
+
+  /// Root of the private runtime the app installs on demand. The system MIP root is left
+  /// untouched, so a user install keeps working.
+  static let privateMIPRoot = "/Library/SpacesRenamer/mip"
+
+  /// Root of the system-wide MIP install.
+  static let systemMIPRoot = "/Library/Apple/System/Library/Frameworks/mip"
+
+  /// True when this build carries the private runtime payload, so MIP can be used without a
+  /// separate user install.
+  static var mipRuntimeEmbedded: Bool {
+    guard let root = Bundle.main.resourceURL?.appendingPathComponent("mip") else { return false }
+    let manager = FileManager.default
+    return ["injectd", "loader.dylib", "inject"].allSatisfy {
+      manager.fileExists(atPath: root.appendingPathComponent($0).path)
+    }
+  }
+
+  /// Removes the private runtime through an admin prompt. Only our own daemons, plists and
+  /// root are touched; a system MIP install stays.
+  static func uninstallMIPRuntime() throws -> String {
+    guard let script = scriptURL else { throw InjectorError.notEmbedded }
+    return try admin("/bin/sh \(shellQuote(script.path)) mip-runtime uninstall")
   }
 }
 
@@ -345,6 +440,12 @@ final class ActivationModel {
 
   func deactivate() {
     perform { try Injector.deactivate($0) }
+  }
+
+  /// Removes the private runtime. Only the user asks for this; the app never uninstalls the
+  /// runtime on its own.
+  func uninstallRuntime() {
+    perform { _ in try Injector.uninstallMIPRuntime() }
   }
 
   private func perform(

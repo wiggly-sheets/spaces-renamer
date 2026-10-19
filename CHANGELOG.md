@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- The app now ships its own private MIP runtime: the prebuilt runtime is bundled with the app and installed on demand under `/Library/SpacesRenamer/mip`, so no separate MIP install is needed and a system MIP install stays untouched. The DYLD path remains available as an explicit fallback.
+- Settings and Diagnostics now report the state of the injection runtime, and Settings offers a "Remove injection runtime" action that uninstalls the private runtime.
+
 ### Changed
 
 - Only the copy installed in /Applications publishes Space names and the monitor layout into the live `com.apple.dock` preference domain, so staging builds can no longer blank the Dock's Space names. A staging build that must drive the real hook opts in with `-publishDockNames YES`.
@@ -11,6 +16,7 @@
 - The app no longer crashes at launch on macOS 27: the menu bar label now receives the observed stores it reads, instead of trapping with "No Observable object of type PreferencesStore found".
 - Injection now repairs MIP's broken launchservicesd hook. MIP hooks launchservicesd through the one-shot boot job `local.lsdinjector`; when launchservicesd was replaced after that job ran, no process received `mip/loader.dylib`, the bundle was never loaded, and the stale plugin marker kept the app reporting "Renaming off" forever. The injector now probes the real daemon label (`local.injectd`), re-injects the hook into the running launchservicesd, and skips the repair when the hook is already there.
 - Injection now reports why it failed instead of only "Renaming off": the injector output and the error message are shown in Settings and in the menu bar popover, and the automatic injection waits for the host to load the bundle before asking for administrator approval, so a login no longer prompts for elevation.
+- `make app` no longer ships a stale binary: the app target now compiles a real release build for both architectures before copying the binary into the bundle.
 
 ## 1.0.1 (2026-08-01)
 

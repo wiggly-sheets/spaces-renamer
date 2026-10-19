@@ -113,7 +113,7 @@ Spaces Renamer loads `spaces-renamer.dylib` into the process that draws the Spac
 
 > **Heads up:** MIP is upstream-tested only up to macOS Sonoma. It works on macOS 26/27 with the arm64e preview ABI but is unsupported by its author, and a bad injector can require a [Recovery-boot fix](https://github.com/LIJI32/MIP#disclaimer). macOS updates can also silently drop boot arguments; if the host dies with `Killed: 9` after an OS update, re-check `nvram boot-args` and re-add `-arm64e_preview_abi`.
 
-To use MIP, install it once per its README, then drop in our bundle:
+To use MIP, install it once per its README, then drop in our bundle. The app ships its own MIP runtime, so this step is only needed for a checkout that predates the bundled runtime—see [Bundled injection runtime](#bundled-injection-runtime).
 
 ```bash
 # One-time MIP install (build from source; there are no prebuilt binaries)
@@ -129,6 +129,14 @@ sudo make install
 `sudo make install` places MIP under `/Library/Apple/System/Library/Frameworks/mip`, installs `/usr/local/bin/inject`, registers two root LaunchDaemons (`/Library/LaunchDaemons/local.injectd.plist` and `local.lsdinjector.plist`), sets a global `DisableLibraryValidation=true`, and appends `tss_should_crash=0 amfi_get_out_of_my_way=1` to your boot-args. A reboot is required afterwards. Then activate our bundle in **Settings → Injection → Injection method → MIP** (or `injector.sh mip on <SpacesRenamer.mip.bundle>` as root). The Diagnostics pane greys MIP activation out until MIP is installed.
 
 > MIP's `make uninstall` is incomplete: it removes the MIP frameworks, the `lsdinjector` LaunchDaemon and the library-validation default, but leaves `/usr/local/bin/inject`, the `injectd` LaunchDaemon, and the boot-args it added. If MIP ever prevents Terminal from opening, boot to Recovery and `rm /Library/LaunchDaemons/local.lsdinjector.plist`, which disables MIP.
+
+### Bundled injection runtime
+
+The app carries a private build of MIP in `Contents/Resources/mip`—`injectd`, `loader.dylib`, `lsdinjector.dylib`, `inject` and two LaunchDaemon templates. It is committed prebuilt, so a fresh Mac needs nothing but `SpacesRenamer.app`: no compiler, no GNU binutils, no separate MIP install. The app copies the runtime into `/Library/SpacesRenamer/mip`, registers its own two LaunchDaemons (`com.wiggly-sheets.spaces-renamer.injectd` and `com.wiggly-sheets.spaces-renamer.lsdinjector`) and owns its own Mach service.
+
+Your own MIP install is left untouched: the private runtime installs into its own root, keeps its own Mach service and chains onto the `launchservicesd` hook instead of replacing it, so both can run side by side. The DYLD path stays available as an explicit fallback for anyone who does not want a root install at all.
+
+Rebuilding the runtime needs GNU binutils (`brew install binutils`); see `injection/mip/README.md`.
 
 ### Uninstall
 

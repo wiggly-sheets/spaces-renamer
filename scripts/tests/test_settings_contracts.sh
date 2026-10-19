@@ -124,8 +124,8 @@ assert_fixed "macOS 27+ host domain exists" 'com.apple.WindowManager' "$INJECTOR
 assert_fixed "macOS 26 host domain exists" 'com.apple.dock' "$INJECTOR_SWIFT"
 assert_fixed "elevation uses the standard admin prompt" \
   'with administrator privileges' "$INJECTOR_SWIFT"
-  assert_fixed "narrow MIP path is preferred when MIP is installed" \
-    'mipAvailable ? .mip : .dyld' "$INJECTOR_SWIFT"
+  assert_fixed "narrow MIP path is preferred when a MIP runtime is available" \
+    '(runtimeEmbedded || systemMIPAvailable) ? .mip : .dyld' "$INJECTOR_SWIFT"
   assert_fixed "narrow MIP path is preferred when MIP is installed" \
     'preferred: InjectorBackend' "$INJECTOR_SWIFT"
   assert_fixed "MIP well-known path is checked" \

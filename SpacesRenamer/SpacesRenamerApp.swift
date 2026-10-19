@@ -134,6 +134,14 @@ private struct PopoverContent: View {
           .fixedSize(horizontal: false, vertical: true)
       }
 
+      if let root = injection.runtimeRoot {
+        Text("Runtime: \(root)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .help(injection.runtimeSummary)
+      }
+
       Toggle("Keep Dock Renaming Active", isOn: Binding(
         get: { preferences.automaticInjectionEnabled },
         set: { enabled in

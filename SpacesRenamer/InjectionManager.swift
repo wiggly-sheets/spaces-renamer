@@ -66,6 +66,49 @@ final class InjectionManager {
   /// Nil when the injector script did not report the key.
   var mipDaemonRunning: Bool? { activation.state.mipDaemon }
 
+  /// The root the injector uses for MIP. Nil when the script did not report it.
+  var runtimeRoot: String? { activation.state.runtimeRoot }
+
+  /// Whether the private runtime files are present. Nil when the script did not report it.
+  var runtimeInstalled: Bool? { activation.state.runtimeInstalled }
+
+  /// Whether the private runtime's daemon is running. Nil when the script did not report it.
+  var runtimeDaemonRunning: Bool? { activation.state.runtimeDaemon }
+
+  /// Whether launchservicesd maps the runtime's loader. Nil when the script did not report it.
+  var runtimeHooked: Bool? { activation.state.runtimeHooked }
+
+  /// Whether our bundle is installed in the active root. Nil when the script did not report it.
+  var runtimeBundleInstalled: Bool? { activation.state.runtimeBundle }
+
+  /// The Mach service in use. Nil when the script did not report it.
+  var runtimeService: String? { activation.state.runtimeService }
+
+  /// One line describing the injection runtime, for example
+  /// "Runtime: /Library/SpacesRenamer/mip (installed, daemon running, host hook on)".
+  var runtimeSummary: String { activation.state.runtimeSummary }
+
+  /// Which runtime the app injects through. The private runtime wins, so a system MIP
+  /// install stays untouched.
+  var runtimeOrigin: MIPRuntimeOrigin {
+    if activation.state.runtimeInstalled == true { return .privateRuntime }
+    if Injector.mipRuntimeEmbedded { return .privateRuntime }
+    if Injector.mipAvailable { return .systemMIP }
+    return .none
+  }
+
+  /// Explains which runtime is used and what that leaves alone.
+  var runtimeOriginCaption: String {
+    switch runtimeOrigin {
+    case .privateRuntime:
+      return "Uses \(Injector.privateMIPRoot). A system MIP install is left untouched."
+    case .systemMIP:
+      return "Uses the system MIP install in \(Injector.systemMIPRoot)."
+    case .none:
+      return "No MIP runtime is available, so the LaunchAgent (DYLD) path is used."
+    }
+  }
+
   private weak var preferences: PreferencesStore?
   private let activation = ActivationModel()
   private var observers: [NSObjectProtocol] = []
@@ -130,6 +173,13 @@ final class InjectionManager {
     Self.log.notice("inject: deactivating backend=\(backend.rawValue)")
     activation.backend = backend
     activation.deactivate()
+  }
+
+  /// Removes the private injection runtime. The user asks for this explicitly; the manager
+  /// never removes the runtime on its own and never touches the DYLD path.
+  func uninstallMIPRuntime() {
+    Self.log.notice("inject: removing the private injection runtime")
+    activation.uninstallRuntime()
   }
 
   /// Automatic injection, scheduled with a delay. The app can start before the
