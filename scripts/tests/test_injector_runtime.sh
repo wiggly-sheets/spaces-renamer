@@ -16,7 +16,7 @@ fail=0
 
 assert_fixed() {
   local description="$1" text="$2" file="$3"
-  if rg --fixed-strings --quiet -e "$text" "$file"; then
+  if grep -F -q -e "$text" "$file"; then
   	pass=$((pass + 1))
   	echo "ok - $description"
   else
@@ -27,7 +27,7 @@ assert_fixed() {
 
 assert_absent() {
   local description="$1" text="$2" file="$3"
-  if rg --fixed-strings --quiet -e "$text" "$file"; then
+  if grep -F -q -e "$text" "$file"; then
   	fail=$((fail + 1))
   	echo "FAIL - $description"
   else
@@ -74,7 +74,7 @@ assert_fixed "the private lsdinjector label is fixed" \
 assert_fixed "the system MIP root keeps its own name" \
   'SYSTEM_MIP_ROOT="/Library/Apple/System/Library/Frameworks/mip"' "$INJECTOR"
 assert_pass "the plain MIP_ROOT variable is gone" \
-  bash -c "! rg --quiet -e '^MIP_ROOT=' '$INJECTOR'"
+  bash -c "! grep -q -e '^MIP_ROOT=' '$INJECTOR'"
 
 # --- mip on installs into the private root ------------------------------------
 
@@ -233,7 +233,7 @@ assert_fixed "the mip target prints the rebuild command" \
 assert_fixed "the app target embeds the injection stack" \
   './scripts/embed-injection.sh "$(APP)"' "$MAKEFILE"
 assert_eq "no target depends on the mip target" "" \
-  "$(rg -n '^[a-zA-Z0-9_-]+:.*[[:space:]]mip([[:space:]]|$)' "$MAKEFILE" || true)"
+  "$(grep -n -E '^[a-zA-Z0-9_-]+:.*[[:space:]]mip([[:space:]]|$)' "$MAKEFILE" || true)"
 
 echo
 echo "$pass passed, $fail failed"

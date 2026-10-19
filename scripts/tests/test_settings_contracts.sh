@@ -20,7 +20,7 @@ fail=0
 
 assert_fixed() {
   local description="$1" text="$2" file="$3"
-  if rg --fixed-strings --quiet -e "$text" "$file"; then
+  if grep -F -q -e "$text" "$file"; then
     pass=$((pass + 1))
     echo "ok - $description"
   else
@@ -31,7 +31,7 @@ assert_fixed() {
 
 assert_absent() {
   local description="$1" text="$2" file="$3"
-  if rg --fixed-strings --quiet -e "$text" "$file"; then
+  if grep -F -q -e "$text" "$file"; then
     fail=$((fail + 1))
     echo "FAIL - $description"
   else
@@ -180,8 +180,8 @@ assert_absent \
 
 assert_fixed "injection prerequisite alert exists" \
   'showInjectionSetupRequiredAlert' "$APP_DELEGATE"
-first_consent="$(rg -n 'setInjectionConsent' "$APP_DELEGATE" | head -n1 | cut -d: -f1)"
-first_inject="$(rg -n 'injectNow' "$APP_DELEGATE" | head -n1 | cut -d: -f1)"
+first_consent="$(grep -n 'setInjectionConsent' "$APP_DELEGATE" | head -n1 | cut -d: -f1)"
+first_inject="$(grep -n 'injectNow' "$APP_DELEGATE" | head -n1 | cut -d: -f1)"
 if [[ -n "$first_consent" && -n "$first_inject" && "$first_consent" -lt "$first_inject" ]]; then
   pass=$((pass + 1))
   echo "ok - consent is recorded before injection starts"
