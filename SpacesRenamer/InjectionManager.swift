@@ -62,13 +62,6 @@ final class InjectionManager {
     return String(output.prefix(200))
   }
 
-  /// Whether MIP's daemon is running, as reported by the injector status.
-  /// Nil when the injector script did not report the key.
-  var mipDaemonRunning: Bool? { activation.state.mipDaemon }
-
-  /// The root the injector uses for MIP. Nil when the script did not report it.
-  var runtimeRoot: String? { activation.state.runtimeRoot }
-
   /// Whether the private runtime files are present. Nil when the script did not report it.
   var runtimeInstalled: Bool? { activation.state.runtimeInstalled }
 
@@ -97,16 +90,10 @@ final class InjectionManager {
     return .none
   }
 
-  /// Explains which runtime is used and what that leaves alone.
-  var runtimeOriginCaption: String {
-    switch runtimeOrigin {
-    case .privateRuntime:
-      return "Uses \(Injector.privateMIPRoot). A system MIP install is left untouched."
-    case .systemMIP:
-      return "Uses the system MIP install in \(Injector.systemMIPRoot)."
-    case .none:
-      return "No MIP runtime is available, so the LaunchAgent (DYLD) path is used."
-    }
+  /// One line naming the injection method that is in use and, for MIP, the runtime
+  /// that provides it. Follows the real resolution, not the preference alone.
+  var activeBackendCaption: String {
+    resolvedBackend().caption(origin: runtimeOrigin)
   }
 
   private weak var preferences: PreferencesStore?

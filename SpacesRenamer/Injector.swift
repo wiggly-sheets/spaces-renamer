@@ -46,13 +46,17 @@ enum InjectorBackend: String, CaseIterable, Identifiable {
     }
   }
 
-  /// One-line honest summary shown next to the picker.
-  var summary: String {
+  /// One line naming the method in use and, for MIP, the runtime that provides it.
+  func caption(origin: MIPRuntimeOrigin) -> String {
     switch self {
     case .dyld:
-      "No root. A per-user LaunchAgent sets the variable and restarts the host at login. The library is loaded into every app you launch, where it does nothing."
+      return "In use: LaunchAgent (DYLD)"
     case .mip:
-      "Needs a MIP runtime and an admin password. It loads the bundle only into the host, so nothing else sees the dylib, and it survives reboot with no login agent."
+      switch origin {
+      case .privateRuntime: return "In use: MIP — the private runtime"
+      case .systemMIP: return "In use: MIP — the system MIP install"
+      case .none: return "In use: MIP — no runtime installed yet"
+      }
     }
   }
 
@@ -81,15 +85,6 @@ enum MIPRuntimeOrigin: Equatable {
   case systemMIP
   /// No MIP runtime is available.
   case none
-
-  /// Short name for captions.
-  var captionName: String {
-    switch self {
-    case .privateRuntime: return "the private runtime"
-    case .systemMIP: return "the system MIP install"
-    case .none: return "no MIP runtime"
-    }
-  }
 }
 
 /// Parsed output of `injector.sh status`.

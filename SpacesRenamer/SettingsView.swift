@@ -59,6 +59,17 @@ struct SettingsView: View {
 private struct InjectionSettingsView: View {
   @Environment(PreferencesStore.self) private var preferences
   @Environment(InjectionManager.self) private var injection
+  @State private var showsDetails = false
+
+  /// Plain-language explanation of the three injection methods, shown on the
+  /// info icon and on the picker itself.
+  private static let methodHelp = """
+    \(InjectionMode.auto.title): uses the private runtime bundled with the app when it is installed, a system MIP install when it is not, and the LaunchAgent path when neither is available.
+
+    \(InjectionMode.mip.title): the app installs a small background service that loads the renaming hook into Dock and WindowManager only. No other app on your Mac sees the library. It asks for your admin password once and survives a restart.
+
+    \(InjectionMode.dyld.title): no admin password. A per-user login agent sets DYLD_INSERT_LIBRARIES and restarts the host. The library is loaded into every app you launch afterwards, where it does nothing.
+    """
 
   var body: some View {
     SettingsPage(
@@ -84,51 +95,27 @@ private struct InjectionSettingsView: View {
           .foregroundStyle(.orange)
       }
 
-      if let output = injection.lastInjectorOutput {
-        Text("Last injector output: \(output)")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .textSelection(.enabled)
-      }
-
-      if let daemon = injection.mipDaemonRunning {
-        Text(daemon ? "MIP daemon: running" : "MIP daemon: not running")
-          .font(.caption)
-          .foregroundStyle(daemon ? Color.secondary : Color.red)
-      }
-
-      Text(injection.runtimeSummary)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .textSelection(.enabled)
-        .help("The injection runtime in use, and what is missing from it.")
-
       Divider()
 
-      Picker("Injection method", selection: Binding(
-        get: { preferences.injectionMode },
-        set: { preferences.setInjectionMode($0) }
-      )) {
-        ForEach(InjectionMode.allCases) { mode in
-          Text(mode.title).tag(mode)
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        Picker("Injection method", selection: Binding(
+          get: { preferences.injectionMode },
+          set: { preferences.setInjectionMode($0) }
+        )) {
+          ForEach(InjectionMode.allCases) { mode in
+            Text(mode.title).tag(mode)
+          }
         }
-      }
-      .pickerStyle(.radioGroup)
+        .pickerStyle(.radioGroup)
+        .help(Self.methodHelp)
 
-      let resolved = preferences.injectionMode.resolve()
-      Text(resolved.summary)
-        .font(.callout)
-        .foregroundStyle(.secondary)
-      if preferences.injectionMode == .auto {
-        Text(resolved == .mip
-          ? "MIP is used, with \(injection.runtimeOrigin.captionName)."
-          : "DYLD is used, because no MIP runtime is available.")
-          .font(.caption)
+        Image(systemName: "info.circle")
           .foregroundStyle(.secondary)
+          .help(Self.methodHelp)
       }
 
-      Text(injection.runtimeOriginCaption)
-        .font(.caption)
+      Text(injection.activeBackendCaption)
+        .font(.callout)
         .foregroundStyle(.secondary)
 
       Button {
@@ -162,13 +149,27 @@ private struct InjectionSettingsView: View {
         Text(preferences.loginItemEnabled ? "On" : "Off")
           .foregroundStyle(.secondary)
       }
-      Text("Controlled in General. The app re-injects automatically when it is running.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      .help("Controlled in General. The app re-injects automatically when it is running.")
 
-      Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      DisclosureGroup("Details", isExpanded: $showsDetails) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(injection.runtimeSummary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+          if let output = injection.lastInjectorOutput {
+            Text("Last injector output: \(output)")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+          }
+          Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .font(.callout)
     }
   }
 

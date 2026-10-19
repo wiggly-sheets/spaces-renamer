@@ -10,6 +10,7 @@
 ### Changed
 
 - Only the copy installed in /Applications publishes Space names and the monitor layout into the live `com.apple.dock` preference domain, so staging builds can no longer blank the Dock's Space names. A staging build that must drive the real hook opts in with `-publishDockNames YES`.
+- The Injection settings page now explains each injection method in a tooltip next to the method picker and keeps the runtime details behind a collapsed "Details" section, so only the status, the method in use, and the actions stay visible.
 
 ### Fixed
 

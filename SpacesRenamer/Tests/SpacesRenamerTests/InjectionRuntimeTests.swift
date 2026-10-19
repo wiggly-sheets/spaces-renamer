@@ -117,4 +117,23 @@ final class InjectionRuntimeTests: XCTestCase {
     XCTAssertEqual(InjectionMode.mip.resolve(), .mip)
     XCTAssertEqual(InjectionMode.dyld.resolve(), .dyld)
   }
+
+  func testBackendCaptionNamesTheMethodAndTheRuntime() {
+    XCTAssertEqual(
+      InjectorBackend.dyld.caption(origin: .none),
+      "In use: LaunchAgent (DYLD)"
+    )
+    XCTAssertEqual(
+      InjectorBackend.mip.caption(origin: .privateRuntime),
+      "In use: MIP — the private runtime"
+    )
+    XCTAssertEqual(
+      InjectorBackend.mip.caption(origin: .systemMIP),
+      "In use: MIP — the system MIP install"
+    )
+    XCTAssertEqual(
+      InjectorBackend.mip.caption(origin: .none),
+      "In use: MIP — no runtime installed yet"
+    )
+  }
 }
