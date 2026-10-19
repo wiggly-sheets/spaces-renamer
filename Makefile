@@ -15,17 +15,17 @@ endif
 BUILD ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 SPM_DIR := SpacesRenamer
 # The app binary comes from one xcodebuild pass over the SwiftPM package.
-# SwiftPM's own multi-architecture build (swift build --arch arm64 --arch
-# x86_64) fails on the CI runner's toolchain with a duplicate-output-file
-# error; xcodebuild builds the same package in a single pass.
+# SwiftPM's own build path fails on the CI runner's toolchain with a
+# duplicate-output-file error; xcodebuild builds the same package in a single
+# pass. The product is Apple silicon only: the app ships arm64.
 APP_BINARY := $(DERIVED_DATA)/Build/Products/Release/SpacesRenamer
 
-.PHONY: app app-tahoe app-gg plugin bundle package-injection mip universal dmg background man verify inject clean test
+.PHONY: app plugin bundle package-injection mip build-all dmg background man verify inject clean test
 
 app: bundle man
-	# Build the Swift binary for the architectures the app ships (arm64 and
-	# x86_64) in one xcodebuild pass; the bundle below is assembled by hand.
-	cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$(CURDIR)/$(DERIVED_DATA)" ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
+	# Build the Swift binary for the architecture the app ships (arm64) in one
+	# xcodebuild pass; the bundle below is assembled by hand.
+	cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$(CURDIR)/$(DERIVED_DATA)" ARCHS='arm64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 	# Assemble the app bundle by hand; SwiftPM emits a bare executable.
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
@@ -55,63 +55,16 @@ app: bundle man
 	# Bundle injection stack into app resources.
 	./scripts/embed-injection.sh "$(APP)"
 
-# Universal build for macOS 26 (Tahoe) — runs on both Intel and Apple Silicon.
-app-tahoe: bundle man
-	# Same single-pass xcodebuild as the `app` target; SwiftPM's own
-	# multi-architecture build fails on the CI runner's toolchain.
-	cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$(CURDIR)/$(DERIVED_DATA)" ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
-	rm -rf "$(APP)"
-	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
-	cp "$(APP_BINARY)" "$(APP)/Contents/MacOS/SpacesRenamer"
-	sed -e 's/\$$(MARKETING_VERSION)/$(VERSION)/' \
-	    -e 's/\$$(MACOSX_DEPLOYMENT_TARGET)/14.0/' \
-	    -e 's/\$$(PRODUCT_BUNDLE_IDENTIFIER)/com.wiggly-sheets.SpacesRenamer/' \
-	    -e 's/\$$(EXECUTABLE_NAME)/SpacesRenamer/' \
-	    -e 's/\$$(PRODUCT_NAME)/SpacesRenamer/' \
-	    -e 's/\$$(DEVELOPMENT_LANGUAGE)/English/' \
-	    SpacesRenamer/Info.plist > "$(APP)/Contents/Info.plist"
-	xcrun actool SpacesRenamer/Assets.xcassets --compile "$(APP)/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 --app-icon AppIcon --output-partial-info-plist .build/AssetsPartial.plist
-	/usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile AppIcon' -c 'Add :CFBundleIconName string AppIcon' "$(APP)/Contents/Info.plist"
-	printf 'APPL????' > "$(APP)/Contents/PkgInfo"
-	codesign --force --sign - --entitlements SpacesRenamer/SpacesRenamer.entitlements "$(APP)"
-	cp cli/sr "$(APP)/Contents/Resources/sr"
-	chmod 0755 "$(APP)/Contents/Resources/sr"
-	mkdir -p "$(APP)/Contents/Resources/man/man1"
-	cp "$(MANPAGE)" "$(APP)/Contents/Resources/man/man1/sr.1"
-	./scripts/embed-injection.sh "$(APP)"
-
-# arm64-only build for macOS 27+ (Golden Gate) — Apple Silicon only.
-app-gg: bundle man
-	# Same single-pass xcodebuild as the `app` target, arm64 slice only.
-	cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$(CURDIR)/$(DERIVED_DATA)" ARCHS='arm64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
-	rm -rf "$(APP)"
-	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
-	cp "$(APP_BINARY)" "$(APP)/Contents/MacOS/SpacesRenamer"
-	sed -e 's/\$$(MARKETING_VERSION)/$(VERSION)/' \
-	    -e 's/\$$(MACOSX_DEPLOYMENT_TARGET)/27.0/' \
-	    -e 's/\$$(PRODUCT_BUNDLE_IDENTIFIER)/com.wiggly-sheets.SpacesRenamer/' \
-	    -e 's/\$$(EXECUTABLE_NAME)/SpacesRenamer/' \
-	    -e 's/\$$(PRODUCT_NAME)/SpacesRenamer/' \
-	    -e 's/\$$(DEVELOPMENT_LANGUAGE)/English/' \
-	    SpacesRenamer/Info.plist > "$(APP)/Contents/Info.plist"
-	xcrun actool SpacesRenamer/Assets.xcassets --compile "$(APP)/Contents/Resources" --platform macosx --minimum-deployment-target 27.0 --app-icon AppIcon --output-partial-info-plist .build/AssetsPartial.plist
-	/usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile AppIcon' -c 'Add :CFBundleIconName string AppIcon' "$(APP)/Contents/Info.plist"
-	printf 'APPL????' > "$(APP)/Contents/PkgInfo"
-	codesign --force --sign - --entitlements SpacesRenamer/SpacesRenamer.entitlements "$(APP)"
-	cp cli/sr "$(APP)/Contents/Resources/sr"
-	chmod 0755 "$(APP)/Contents/Resources/sr"
-	mkdir -p "$(APP)/Contents/Resources/man/man1"
-	cp "$(MANPAGE)" "$(APP)/Contents/Resources/man/man1/sr.1"
-	./scripts/embed-injection.sh "$(APP)"
-
 plugin:
-	$(XCODEBUILD) -scheme spaces-renamer 'ARCHS=arm64e x86_64' 'SPACES_RENAMER_BUILD_NUMBER=$(BUILD)' build
+	$(XCODEBUILD) -scheme spaces-renamer 'ARCHS=arm64e' 'SPACES_RENAMER_BUILD_NUMBER=$(BUILD)' build
 
 package-injection: plugin
-	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" -thin arm64e -output injection/lib/spaces-renamer.dylib
-	# lipo -thin keeps only the linker signature. The kernel's code-signing monitor
-	# rejects that for DYLD-injected libraries on arm64e (the host is SIGKILLed with
-	# "Code Signature Invalid" on relaunch), so re-sign the payload ad-hoc.
+	# The plugin builds arm64e only, so the built dylib is already the slice
+	# we ship; lipo -thin would reject it as not being a fat file.
+	cp "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" injection/lib/spaces-renamer.dylib
+	# The linker signature alone is rejected for DYLD-injected libraries on
+	# arm64e (the host is SIGKILLed with "Code Signature Invalid" on
+	# relaunch), so re-sign the payload ad-hoc.
 	codesign --force --sign - injection/lib/spaces-renamer.dylib
 
 # Assemble the MIP bundle consumed by injection/injector.sh `mip on`.
@@ -136,6 +89,11 @@ mip:
 	$(MAKE) -C third_party/mip/MIP BUILD_DIR="$(CURDIR)/.build/mip" \
 		MIP_ROOT=/Library/SpacesRenamer/mip \
 		MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd
+	# The vendored build makes the loader fat (arm64e plus an Intel slice for
+	# Rosetta). Only arm64e hosts can load it, so ship the arm64e slice alone.
+	lipo .build/mip/loader.dylib -thin arm64e -output .build/mip/loader.arm64e.dylib
+	codesign --force --sign - .build/mip/loader.arm64e.dylib
+	mv .build/mip/loader.arm64e.dylib .build/mip/loader.dylib
 	cp .build/mip/injectd .build/mip/loader.dylib .build/mip/lsdinjector.dylib \
 		.build/mip/inject injection/mip/
 	# The templates keep the @MIP_ROOT@ and @MIP_SERVICE_NAME@ placeholders: the launcher
@@ -148,7 +106,7 @@ mip:
 inject:
 	./injection/injector.sh dyld on "$(abspath injection/lib/spaces-renamer.dylib)"
 
-universal: app
+build-all: app
 	$(MAKE) verify
 
 dmg: app
@@ -166,9 +124,7 @@ verify:
 	# One -verify_arch per invocation: the multi-arch form trips
 	# "lipo: -verify_arch requires exactly one input file" on this machine.
 	lipo "$(APP)/Contents/MacOS/SpacesRenamer" -verify_arch arm64
-	lipo "$(APP)/Contents/MacOS/SpacesRenamer" -verify_arch x86_64
 	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" -verify_arch arm64e
-	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" -verify_arch x86_64
 	lipo injection/lib/spaces-renamer.dylib -verify_arch arm64e
 	# Embedded DYLD injector script + MIP payload presence checks.
 	test -x "$(APP)/Contents/Resources/injector.sh"
@@ -180,6 +136,17 @@ verify:
 	# The private MIP runtime travels with the app.
 	test -x "$(APP)/Contents/Resources/mip/injectd"
 	test -f "$(APP)/Contents/Resources/mip/spacesrenamer.injectd.plist"
+	# Apple silicon only: every shipped binary is a thin, arm-only slice.
+	test "$$(lipo -archs "$(APP)/Contents/MacOS/SpacesRenamer")" = arm64
+	test "$$(lipo -archs "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib")" = arm64e
+	test "$$(lipo -archs injection/lib/spaces-renamer.dylib)" = arm64e
+	test "$$(lipo -archs "$(APP)/Contents/PlugIns/spaces-renamer.dylib")" = arm64e
+	for f in injectd loader.dylib lsdinjector.dylib inject; do \
+		lipo injection/mip/$$f -verify_arch arm64e; \
+		test "$$(lipo -archs injection/mip/$$f)" = arm64e; \
+		lipo "$(APP)/Contents/Resources/mip/$$f" -verify_arch arm64e; \
+		test "$$(lipo -archs "$(APP)/Contents/Resources/mip/$$f")" = arm64e; \
+	done
 	test -f "$(APP)/Contents/Resources/man/man1/sr.1"
 	test -f "$(APP)/Contents/_CodeSignature/CodeResources"
 	codesign --verify --deep --strict --all-architectures "$(APP)"

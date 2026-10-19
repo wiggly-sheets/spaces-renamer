@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- The release is now Apple silicon only: the x86_64 slices were dropped from the app, the Dock hook and the bundled runtime.
+
+### Removed
+
+- The `app-tahoe` and `app-gg` build targets and the `make universal` target are gone; `make app` builds the only app and `make build-all` replaces `make universal`.
+
 ## 1.1.0 (2026-10-19)
 
 ### Added

@@ -103,6 +103,17 @@ else
   echo "ok - missing args exit non-zero"
 fi
 
+# 6. The shipped cask keeps its arm64 arch gate when the version is bumped.
+CASK="$ROOT/homebrew/spacesrenamer.rb"
+cp "$CASK" "$TMP/shipped.rb"
+"$SCRIPT" 1.2.3 "$SHA" "$TMP/shipped.rb"
+assert_eq "bump keeps the arm64 arch gate" \
+  '  depends_on arch: :arm64' \
+  "$(grep -F 'depends_on arch: :arm64' "$TMP/shipped.rb")"
+assert_eq "bump keeps the macos dependency" \
+  '  depends_on macos: :sonoma' \
+  "$(grep -F 'depends_on macos: :sonoma' "$TMP/shipped.rb")"
+
 echo
 echo "${pass} passed, ${fail} failed"
 [[ "$fail" -eq 0 ]]

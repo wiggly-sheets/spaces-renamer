@@ -54,3 +54,8 @@ Then copy the artifacts into this directory (`injectd`, `loader.dylib`,
 `lsdinjector.dylib`, `inject`) and rebuild the app. `make mip` does the same
 thing from the repository root and fails with a clear message when
 `gobjcopy` is missing.
+
+Every binary here is a thin `arm64e` build: the loader is only ever injected
+into Apple silicon hosts, so the `x86_64` slice the vendored build adds is
+useless. `make mip` thins the loader with `lipo -thin arm64e` before copying
+the artifacts, so a rebuild reproduces the committed `arm64e`-only set.

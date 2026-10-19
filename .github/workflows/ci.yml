@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   verify:
-    name: Tests, universal build, and Dock analyzer
+    name: Tests, Apple silicon build, and Dock analyzer
     runs-on: macos-15
 
     steps:
@@ -31,7 +31,7 @@ jobs:
         run: make test
 
       - name: Build and verify architectures
-        run: make universal
+        run: make build-all
 
       - name: Analyze the injected Dock bundle
         run: >-
