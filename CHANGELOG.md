@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- The Injection settings page no longer stretches the Settings window when the Details section is expanded: the details now scroll inside a bounded box.
+
 ## 1.1.1 (2026-10-19)
 
 ### Changed

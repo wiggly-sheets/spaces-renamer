@@ -14,6 +14,16 @@ VERSION := $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/n
 endif
 BUILD ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 SPM_DIR := SpacesRenamer
+# The vendored MIP build signs with the upstream identity name "CodeSign",
+# which does not exist on a clean machine. Sign ad-hoc by default; pass
+# SIGN_IDENTITY="Apple Development: ..." on the command line to override.
+SIGN_IDENTITY ?= -
+# GNU binutils' gobjcopy is keg-only: `brew install binutils` installs it in
+# the keg, not on PATH. Resolve it once so `make mip` needs no PATH export.
+# The lookup never breaks the parse: a missing tool is reported by the mip
+# target, not by every other target.
+BREW_BINUTILS_PREFIX := $(shell command -v brew >/dev/null 2>&1 && brew --prefix binutils 2>/dev/null)
+GOBJCOPY ?= $(if $(wildcard $(BREW_BINUTILS_PREFIX)/bin/gobjcopy),$(BREW_BINUTILS_PREFIX)/bin/gobjcopy,gobjcopy)
 # The app binary comes from one xcodebuild pass over the SwiftPM package.
 # SwiftPM's own build path fails on the CI runner's toolchain with a
 # duplicate-output-file error; xcodebuild builds the same package in a single
@@ -77,18 +87,19 @@ bundle: package-injection
 # Rebuild the private MIP runtime from the vendored source. It is committed
 # prebuilt, so this is not part of the default build; see injection/mip/README.md.
 mip:
-	@command -v gobjcopy >/dev/null 2>&1 || { \
+	@command -v "$(GOBJCOPY)" >/dev/null 2>&1 || { \
 		echo "error: gobjcopy not found; the MIP runtime needs GNU binutils" >&2; \
 		echo "       brew install binutils" >&2; \
-		echo "       export PATH=\"$$(brew --prefix binutils)/bin:$$PATH\"" >&2; \
 		exit 1; }
 	@echo "Rebuild command (injection/mip/README.md):"
 	@echo '  brew install binutils'
-	@echo '  export PATH="$$(brew --prefix binutils)/bin:$$PATH"'
-	@echo '  make -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd'
-	$(MAKE) -C third_party/mip/MIP BUILD_DIR="$(CURDIR)/.build/mip" \
-		MIP_ROOT=/Library/SpacesRenamer/mip \
-		MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd
+	@echo '  make mip'
+	@echo '  make -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd BUILD_DIR="$(CURDIR)/.build/mip" SIGN_IDENTITY="$(SIGN_IDENTITY)" GOBJCOPY="$(GOBJCOPY)"'
+	$(MAKE) -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip \
+		MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd \
+		BUILD_DIR="$(CURDIR)/.build/mip" \
+		SIGN_IDENTITY="$(SIGN_IDENTITY)" \
+		GOBJCOPY="$(GOBJCOPY)"
 	# The vendored build makes the loader fat (arm64e plus an Intel slice for
 	# Rosetta). Only arm64e hosts can load it, so ship the arm64e slice alone.
 	lipo .build/mip/loader.dylib -thin arm64e -output .build/mip/loader.arm64e.dylib

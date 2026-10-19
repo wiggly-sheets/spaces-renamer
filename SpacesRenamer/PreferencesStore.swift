@@ -120,8 +120,11 @@ final class PreferencesStore {
     )
   }
 
-  /// Test seam: points persistence at `fileURL` and skips publishing names
-  /// into the live `com.apple.dock` preference domain.
+  /// Test seam: points persistence at `fileURL` and selects whether names
+  /// publish into the live `com.apple.dock` preference domain. Production
+  /// publishes only when `NativeAppManagement.publishesToDockNames` is true:
+  /// the copy installed in /Applications, or any copy started with
+  /// `-publishDockNames YES`.
   init(fileURL: URL, publishesToDockDomain: Bool) {
     self.fileURL = fileURL
     self.publishesToDockDomain = publishesToDockDomain

@@ -73,7 +73,9 @@ final class SpaceStore {
   private var refreshGeneration = 0
 
   /// Test seam: when false, skip writing `SpacesRenamerMonitors` into the
-  /// live `com.apple.dock` preference domain. Production always writes.
+  /// live `com.apple.dock` preference domain. Production publishes only when
+  /// `NativeAppManagement.publishesToDockNames` is true: the copy installed in
+  /// /Applications, or any copy started with `-publishDockNames YES`.
   private var publishesToDockDomain: Bool
 
   convenience init() {

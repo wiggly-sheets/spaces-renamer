@@ -45,15 +45,20 @@ dylibs into raw blobs. It is not part of the Xcode toolchain:
 
 ```bash
 brew install binutils
-export PATH="$(brew --prefix binutils)/bin:$PATH"
-make -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip \
-    MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd
+make mip
 ```
 
-Then copy the artifacts into this directory (`injectd`, `loader.dylib`,
-`lsdinjector.dylib`, `inject`) and rebuild the app. `make mip` does the same
-thing from the repository root and fails with a clear message when
-`gobjcopy` is missing.
+`make mip` finds `gobjcopy` in the Homebrew keg, so no `PATH` export is
+needed. It copies the rebuilt binaries into this directory and thins the
+loader to `arm64e`; the committed artifacts stay authoritative, so restore
+them with `git checkout -- injection/mip/` unless a rebuild is intended.
+
+The binaries are signed ad-hoc by default. Pass a real identity to sign them
+properly:
+
+```bash
+make mip SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"
+```
 
 Every binary here is a thin `arm64e` build: the loader is only ever injected
 into Apple silicon hosts, so the `x86_64` slice the vendored build adds is

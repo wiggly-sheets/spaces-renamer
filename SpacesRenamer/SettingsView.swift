@@ -152,22 +152,26 @@ private struct InjectionSettingsView: View {
       .help("Controlled in General. The app re-injects automatically when it is running.")
 
       DisclosureGroup("Details", isExpanded: $showsDetails) {
-        VStack(alignment: .leading, spacing: 4) {
-          Text(injection.runtimeSummary)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .textSelection(.enabled)
-          if let output = injection.lastInjectorOutput {
-            Text("Last injector output: \(output)")
+        ScrollView {
+          VStack(alignment: .leading, spacing: 4) {
+            Text(injection.runtimeSummary)
               .font(.caption)
               .foregroundStyle(.secondary)
               .textSelection(.enabled)
+            if let output = injection.lastInjectorOutput {
+              Text("Last injector output: \(output)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            }
+            Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
-          Text("Requires Apple silicon, the -arm64e_preview_abi boot argument, and disabled or partially disabled SIP.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: 120)
       }
       .font(.callout)
     }
