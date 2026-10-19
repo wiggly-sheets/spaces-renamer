@@ -11,8 +11,8 @@
 # The Dock injection bundle is bundled inside the app.
 
 cask "spacesrenamer" do
-  version "1.0.1"
-  sha256 "0bdc9382a76299fc0f292a2fa988dff66bd53df3f3a8a07aa8c195ad0b0e26ec"
+  version "1.1.0"
+  sha256 "90802a5cc053878792b7ac2218245504b628214ef38d79270e355940fc8fa5ac"
 
   url "https://github.com/wiggly-sheets/spaces-renamer/releases/download/v#{version}/SpacesRenamer-v#{version}.dmg"
   name "Spaces Renamer"
