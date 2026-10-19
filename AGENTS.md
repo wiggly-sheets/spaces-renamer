@@ -74,12 +74,27 @@ The supported deployment target is macOS 14 or newer.
   - Objective-C runtime swizzling support.
 - `injection/`
   - `injector.sh` — the active DYLD LaunchAgent + MIP bundle injection script.
+- `injection/mip/`
+  - Prebuilt private MIP runtime (`injectd`, `loader.dylib`, `lsdinjector.dylib`,
+    `inject`) plus the launchd plist templates that ship inside the app.
+  - The runtime installs into `/Library/SpacesRenamer/mip` and never modifies a
+    system MIP install.
+- `third_party/mip/`
+  - Vendored, patched MIP source (X11 licence) that builds `injection/mip/`.
+  - Patches: private Mach service `com.wiggly-sheets.spaces-renamer.injectd`,
+    no `~/Library/MIP` symlink, launchservicesd hook chaining.
+  - Rebuilding needs GNU binutils (`brew install binutils`) and `make mip`;
+    end users need neither.
+- `scripts/embed-injection.sh`
+  - Embeds the injection stack into the app bundle: the arm64e payload, the
+    injector script, the MIP bundle, and the private MIP runtime at
+    `Contents/Resources/mip/`.
 - `packaging/mip/Info.plist`
   - Feeds `make bundle` for the MIP bundle.
 - `Makefile`
   - Canonical local build and architecture verification commands.
-  - `app` builds via SwiftPM and hand-assembles the app bundle; `plugin` stays
-    xcodebuild.
+  - `app` builds the SwiftPM package via xcodebuild and hand-assembles the app
+    bundle; `plugin` stays xcodebuild.
 
 ## Build and Verification
 
@@ -276,7 +291,8 @@ Embedded into the app bundle at build time:
 
 - `Contents/PlugIns/spaces-renamer.dylib` (arm64e);
 - `Contents/Resources/injector.sh` (executable);
-- `Contents/Resources/SpacesRenamer.mip.bundle` (MIP bundle).
+- `Contents/Resources/SpacesRenamer.mip.bundle` (MIP bundle);
+- `Contents/Resources/mip/` (private MIP runtime).
 
 Injection requires reduced macOS security protections. Never run the injection
 script, modify boot arguments, change SIP/AMFI settings, install a privileged
@@ -371,8 +387,8 @@ In priority order:
     cask's `SpacesRenamer-v{version}.zip`).
   - Auto-bump the cask in the release workflow: update
     `homebrew/spacesrenamer.rb` (version + sha256), commit to master, and push
-    the same file to the separate tap repo `wiggly-sheets/homebrew-spacesrenamer`
-    using the existing `GH_TOKEN` secret.
+    the same file to the tap repo `wiggly-sheets/homebrew-tap`
+    (`Casks/spacesrenamer.rb`) using the existing `GH_TOKEN` secret.
   - Post-release tap-test job (non-gating): `brew tap` + `brew install --cask`
     + version assert on the arm64 CI runner; Intel stays a documented manual
     pre-release check.

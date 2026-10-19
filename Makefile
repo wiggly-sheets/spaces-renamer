@@ -57,10 +57,12 @@ app: bundle man
 
 # Universal build for macOS 26 (Tahoe) — runs on both Intel and Apple Silicon.
 app-tahoe: bundle man
-	swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64
+	# Same single-pass xcodebuild as the `app` target; SwiftPM's own
+	# multi-architecture build fails on the CI runner's toolchain.
+	cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$(CURDIR)/$(DERIVED_DATA)" ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
-	cp "$(shell swift build --package-path SpacesRenamer -c release --arch arm64 --arch x86_64 --show-bin-path)/SpacesRenamer" "$(APP)/Contents/MacOS/SpacesRenamer"
+	cp "$(APP_BINARY)" "$(APP)/Contents/MacOS/SpacesRenamer"
 	sed -e 's/\$$(MARKETING_VERSION)/$(VERSION)/' \
 	    -e 's/\$$(MACOSX_DEPLOYMENT_TARGET)/14.0/' \
 	    -e 's/\$$(PRODUCT_BUNDLE_IDENTIFIER)/com.wiggly-sheets.SpacesRenamer/' \
@@ -80,10 +82,11 @@ app-tahoe: bundle man
 
 # arm64-only build for macOS 27+ (Golden Gate) — Apple Silicon only.
 app-gg: bundle man
-	swift build --package-path SpacesRenamer -c release --arch arm64
+	# Same single-pass xcodebuild as the `app` target, arm64 slice only.
+	cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration Release -destination 'generic/platform=macOS' -derivedDataPath "$(CURDIR)/$(DERIVED_DATA)" ARCHS='arm64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
-	cp "$(shell swift build --package-path SpacesRenamer -c release --arch arm64 --show-bin-path)/SpacesRenamer" "$(APP)/Contents/MacOS/SpacesRenamer"
+	cp "$(APP_BINARY)" "$(APP)/Contents/MacOS/SpacesRenamer"
 	sed -e 's/\$$(MARKETING_VERSION)/$(VERSION)/' \
 	    -e 's/\$$(MACOSX_DEPLOYMENT_TARGET)/27.0/' \
 	    -e 's/\$$(PRODUCT_BUNDLE_IDENTIFIER)/com.wiggly-sheets.SpacesRenamer/' \
