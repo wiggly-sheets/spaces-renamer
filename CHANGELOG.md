@@ -9,6 +9,8 @@
 ### Fixed
 
 - The app no longer crashes at launch on macOS 27: the menu bar label now receives the observed stores it reads, instead of trapping with "No Observable object of type PreferencesStore found".
+- Injection now repairs MIP's broken launchservicesd hook. MIP hooks launchservicesd through the one-shot boot job `local.lsdinjector`; when launchservicesd was replaced after that job ran, no process received `mip/loader.dylib`, the bundle was never loaded, and the stale plugin marker kept the app reporting "Renaming off" forever. The injector now probes the real daemon label (`local.injectd`), re-injects the hook into the running launchservicesd, and skips the repair when the hook is already there.
+- Injection now reports why it failed instead of only "Renaming off": the injector output and the error message are shown in Settings and in the menu bar popover, and the automatic injection waits for the host to load the bundle before asking for administrator approval, so a login no longer prompts for elevation.
 
 ## 1.0.1 (2026-08-01)
 

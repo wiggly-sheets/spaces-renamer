@@ -127,6 +127,13 @@ private struct PopoverContent: View {
         .keyboardShortcut("q", modifiers: .command)
       }
 
+      if case .error(let message) = injection.state {
+        Text(message)
+          .font(.caption)
+          .foregroundStyle(.red)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
       Toggle("Keep Dock Renaming Active", isOn: Binding(
         get: { preferences.automaticInjectionEnabled },
         set: { enabled in

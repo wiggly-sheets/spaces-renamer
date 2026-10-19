@@ -146,7 +146,46 @@ dyld_off() {
 require_root() { [ "$(id -u)" -eq 0 ] || die "$1 requires root (run under sudo or the app's admin prompt)"; }
 
 mip_daemon_alive() {
-	launchctl list 2>/dev/null | grep -q "mip"
+	launchctl print system/local.injectd >/dev/null 2>&1
+}
+
+mip_lsd_pid() {
+	/usr/bin/pgrep -x launchservicesd 2>/dev/null | head -1
+}
+
+# The MIP hook is a dylib mapped into launchservicesd. Root can read the
+# mapping list, so the check is exact.
+mip_lsd_hooked() {
+	pid=$(mip_lsd_pid)
+	[ -n "$pid" ] || return 1
+	/usr/sbin/lsof -p "$pid" 2>/dev/null | grep -q "lsdinjector.dylib"
+}
+
+# MIP hooks launchservicesd with a one-shot boot job (local.lsdinjector). When
+# launchservicesd is replaced after that job ran, the new process has no hook,
+# so no GUI app receives the loader and the bundle is never loaded. Re-run the
+# job so the current launchservicesd gets the hook. Never fatal: the hook may
+# already be in place, and a stacked hook would hand every GUI app the loader
+# more than once.
+mip_repair_chain() {
+	if mip_lsd_hooked; then
+		log "MIP hook already present in launchservicesd (pid $(mip_lsd_pid))"
+		return 0
+	fi
+	attempted=0
+	if launchctl kickstart -k system/local.lsdinjector >/dev/null 2>&1; then
+		attempted=1
+	elif [ -x /usr/local/bin/inject ] && [ -f "$MIP_ROOT/lsdinjector.dylib" ]; then
+		if /usr/local/bin/inject launchservicesd "$MIP_ROOT/lsdinjector.dylib" -w4 >/dev/null 2>&1; then
+			attempted=1
+		fi
+	fi
+	if [ "$attempted" -eq 1 ] && mip_lsd_hooked; then
+		log "re-injected the MIP hook into launchservicesd (pid $(mip_lsd_pid))"
+		return 0
+	fi
+	log "warning: MIP hook is still not visible in launchservicesd"
+	return 1
 }
 
 mip_on() {
@@ -154,6 +193,7 @@ mip_on() {
 	require_root "mip on"
 	[ -d "$MIP_ROOT" ] || die "MIP is not installed at $MIP_ROOT (see README: install LIJI32/MIP first)"
 	mip_daemon_alive || die "MIP daemon not running (start MIP first)"
+	mip_repair_chain || log "warning: MIP hook repair failed; the host may not load the bundle"
 	[ -n "$bundle" ] || die "mip on: missing assembled <.bundle> path"
 	[ -d "$bundle" ] || die "mip on: no bundle directory at $bundle"
 	/bin/mkdir -p "$MIP_BUNDLES"

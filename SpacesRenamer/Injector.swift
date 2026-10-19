@@ -72,6 +72,9 @@ struct InjectorState {
   var dyldOn = false
   var mipInstalled = false
   var mipBundleOn = false
+  /// Whether MIP's daemon is running, as reported by `mip_daemon=up|down`.
+  /// Nil when the injector script did not report the key.
+  var mipDaemon: Bool?
   var active: Active = .none
   /// Set when the injector script itself could not be read. Lets callers distinguish
   /// "status unknown" from "status read, nothing configured".
@@ -91,6 +94,7 @@ struct InjectorState {
       case "dyld": dyldOn = value == "on"
       case "mip_installed": mipInstalled = value == "yes"
       case "mip_bundle": mipBundleOn = value == "on"
+      case "mip_daemon": mipDaemon = value == "up"
       case "active": active = Active(rawValue: value) ?? .none
       default: break
       }
@@ -148,33 +152,40 @@ enum Injector {
     return InjectorState(statusOutput: output)
   }
 
-  static func activate(_ backend: InjectorBackend) throws {
+  /// Runs the injector for the backend and returns its combined output.
+  static func activate(_ backend: InjectorBackend) throws -> String {
     switch backend {
     case .dyld:
       guard let dylib = dylibURL, FileManager.default.fileExists(atPath: dylib.path) else {
         throw InjectorError.notEmbedded
       }
-      try sh(["dyld", "on", dylib.path])
+      return try sh(["dyld", "on", dylib.path])
     case .mip:
       guard let script = scriptURL, let bundle = mipBundleURL else { throw InjectorError.notEmbedded }
-      try admin("/bin/sh \(script.path) mip on \(bundle.path)")
+      return try admin("/bin/sh \(shellQuote(script.path)) mip on \(shellQuote(bundle.path))")
     }
   }
 
-  static func deactivate(_ backend: InjectorBackend) throws {
+  /// Runs the deactivation command for the backend and returns its output.
+  static func deactivate(_ backend: InjectorBackend) throws -> String {
     switch backend {
     case .dyld:
-      try sh(["dyld", "off"])
+      return try sh(["dyld", "off"])
     case .mip:
       guard let script = scriptURL else { throw InjectorError.notEmbedded }
-      try admin("/bin/sh \(script.path) mip off")
+      return try admin("/bin/sh \(shellQuote(script.path)) mip off")
     }
   }
 
   /// Adds `-arm64e_preview_abi` to boot-args via an admin prompt (root writes NVRAM).
   static func enableARM64e() throws {
     guard let script = scriptURL else { throw InjectorError.notEmbedded }
-    try admin("/bin/sh \(script.path) arm64e on")
+    _ = try admin("/bin/sh \(shellQuote(script.path)) arm64e on")
+  }
+
+  /// Quotes a path as one POSIX shell word, so paths with spaces stay intact.
+  private static func shellQuote(_ path: String) -> String {
+    "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
   }
 
   /// User-space restart through System Events, so no extra privilege is needed.
@@ -209,8 +220,9 @@ enum Injector {
     return output
   }
 
-  /// Runs a shell command as root via an `osascript` admin prompt.
-  private static func admin(_ command: String) throws {
+  /// Runs a shell command as root via an `osascript` admin prompt, returning the
+  /// combined stdout+stderr so the caller can show why the command failed.
+  private static func admin(_ command: String) throws -> String {
     let appleScript = "do shell script \"\(escapeAppleScript(command))\" with administrator privileges"
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -231,6 +243,7 @@ enum Injector {
       if output.contains("-128") { throw InjectorError.cancelled }
       throw InjectorError.failed(output)
     }
+    return output
   }
 
   /// Escapes a string for use inside an AppleScript double-quoted string literal.
@@ -306,6 +319,12 @@ final class ActivationModel {
   /// The plugin's own report that it is loaded in the running host, independent of which injector
   /// (if any) this app manages. This is the ground truth for "renaming is on".
   private(set) var pluginIsLive = false
+  /// The output of the last injector command, successful or not. Kept so the UI
+  /// can show why an activation failed instead of only "Renaming off".
+  private(set) var lastOutput: String?
+  /// Number of finished activation attempts. Observers use it to detect the end
+  /// of an attempt without polling.
+  private(set) var completedAttempts = 0
   var backend: InjectorBackend = .preferred
   var errorMessage: String?
 
@@ -321,29 +340,59 @@ final class ActivationModel {
   }
 
   func activate() {
-    perform { try Injector.activate($0) }
+    perform(waitsForPlugin: true) { try Injector.activate($0) }
   }
 
   func deactivate() {
     perform { try Injector.deactivate($0) }
   }
 
-  private func perform(_ work: @escaping @Sendable (InjectorBackend) throws -> Void) {
+  private func perform(
+    waitsForPlugin: Bool = false,
+    _ work: @escaping @Sendable (InjectorBackend) throws -> String?
+  ) {
     guard !isBusy else { return }
     isBusy = true
     errorMessage = nil
     let backend = backend
     Task {
+      var succeeded = false
       do {
-        try await Task.detached(priority: .userInitiated) { try work(backend) }.value
+        let output = try await Task.detached(priority: .userInitiated) { try work(backend) }.value
+        lastOutput = output
+        succeeded = true
       } catch let error as InjectorError {
-        if case .cancelled = error {} else { errorMessage = error.localizedDescription }
+        errorMessage = error.localizedDescription
+        lastOutput = error.localizedDescription
       } catch {
         errorMessage = error.localizedDescription
+        lastOutput = error.localizedDescription
+      }
+      if succeeded, waitsForPlugin {
+        // The bundle loads into the restarted host, so the plugin handshake
+        // arrives a moment after the injector command returns.
+        let live = await waitForPluginLoad()
+        if !live {
+          let host = hasLoaded ? state.host : Injector.defaultHost
+          errorMessage = "The injector ran, but the plugin did not load into \(host) within 15 s. "
+            + "MIP's hook into launchservicesd may be missing."
+        }
       }
       await reload()
       isBusy = false
+      completedAttempts += 1
     }
+  }
+
+  /// Polls the plugin handshake until the host reports it, or 15 s pass.
+  private func waitForPluginLoad() async -> Bool {
+    await Task.detached(priority: .userInitiated) { () -> Bool in
+      for _ in 0..<30 {
+        if PluginMarker.current()?.isLive == true { return true }
+        try? await Task.sleep(for: .milliseconds(500))
+      }
+      return PluginMarker.current()?.isLive == true
+    }.value
   }
 
   private func reload() async {
@@ -362,5 +411,7 @@ final class ActivationModel {
     state = snapshot.status
     pluginIsLive = snapshot.live
     hasLoaded = true
+    // A live plugin outranks an earlier failure: the hook did load.
+    if snapshot.live { errorMessage = nil }
   }
 }

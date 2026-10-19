@@ -78,6 +78,38 @@ assert_fixed \
   "injector picks the Spaces bar host per macOS release" \
   'then echo WindowManager; else echo Dock' \
   "$INJECTOR_SCRIPT"
+assert_fixed \
+  "injector checks the MIP daemon through launchctl" \
+  'launchctl print system/local.injectd' \
+  "$INJECTOR_SCRIPT"
+assert_absent \
+  "injector does not grep the launchd list for mip" \
+  'launchctl list' \
+  "$INJECTOR_SCRIPT"
+assert_fixed \
+  "injector repairs the MIP hook chain" \
+  'mip_repair_chain' \
+  "$INJECTOR_SCRIPT"
+assert_fixed \
+  "injector repairs the MIP hook chain in the mip path" \
+  'mip_repair_chain || log "warning: MIP hook repair failed' \
+  "$INJECTOR_SCRIPT"
+assert_fixed \
+  "injector checks whether launchservicesd is already hooked" \
+  'mip_lsd_hooked' \
+  "$INJECTOR_SCRIPT"
+assert_fixed \
+  "injector reads the launchservicesd mapping list" \
+  '/usr/sbin/lsof -p "$pid"' \
+  "$INJECTOR_SCRIPT"
+assert_fixed \
+  "injector skips the repair when the hook is already present" \
+  'MIP hook already present in launchservicesd' \
+  "$INJECTOR_SCRIPT"
+assert_fixed \
+  "injector reports the repair outcome" \
+  'MIP hook is still not visible in launchservicesd' \
+  "$INJECTOR_SCRIPT"
 
 # --- SpacesRenamer/Injector.swift ---------------------------------------------
 
@@ -98,6 +130,10 @@ assert_fixed "elevation uses the standard admin prompt" \
     'preferred: InjectorBackend' "$INJECTOR_SWIFT"
   assert_fixed "MIP well-known path is checked" \
     '/Library/Apple/System/Library/Frameworks/mip' "$INJECTOR_SWIFT"
+assert_fixed "admin command returns the captured output" \
+  'private static func admin(_ command: String) throws -> String' "$INJECTOR_SWIFT"
+assert_fixed "shell paths are quoted" \
+  'private static func shellQuote(_ path: String) -> String' "$INJECTOR_SWIFT"
 
 # --- SpacesRenamer/InjectionManager.swift --------------------------------------
 
@@ -109,6 +145,14 @@ assert_fixed "NVRAM protection must be disabled" 'nvram protections: disabled' "
 assert_fixed "Apple silicon is required" 'hw.optional.arm64' "$INJECTION_MANAGER"
 assert_fixed "manual activation entry point exists" 'injectNow' "$INJECTION_MANAGER"
 assert_fixed "deactivation entry point exists" 'deactivate' "$INJECTION_MANAGER"
+assert_fixed "an activation error becomes the error state" \
+  'state = .error(message)' "$INJECTION_MANAGER"
+assert_fixed "the activation lifecycle is logged" \
+  'Self.log.notice("inject: activating backend=' "$INJECTION_MANAGER"
+assert_fixed "automatic injection has a cooldown" \
+  'automaticInjectionCooldown' "$INJECTION_MANAGER"
+assert_fixed "automatic injection stops after a failed attempt" \
+  'automatic injection skipped (the last attempt failed)' "$INJECTION_MANAGER"
 
 # --- spaces-renamer/spacesRenamer.m --------------------------------------------
 

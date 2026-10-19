@@ -84,6 +84,19 @@ private struct InjectionSettingsView: View {
           .foregroundStyle(.orange)
       }
 
+      if let output = injection.lastInjectorOutput {
+        Text("Last injector output: \(output)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .textSelection(.enabled)
+      }
+
+      if let daemon = injection.mipDaemonRunning {
+        Text(daemon ? "MIP daemon: running" : "MIP daemon: not running")
+          .font(.caption)
+          .foregroundStyle(daemon ? Color.secondary : Color.red)
+      }
+
       Divider()
 
       Picker("Injection method", selection: Binding(

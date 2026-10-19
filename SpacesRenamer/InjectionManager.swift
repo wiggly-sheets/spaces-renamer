@@ -55,12 +55,31 @@ final class InjectionManager {
 
   var isActive: Bool { activation.isActive }
 
+  /// The output of the last injector command, shortened for display. Nil when
+  /// no injector command has run yet.
+  var lastInjectorOutput: String? {
+    guard let output = activation.lastOutput, !output.isEmpty else { return nil }
+    return String(output.prefix(200))
+  }
+
+  /// Whether MIP's daemon is running, as reported by the injector status.
+  /// Nil when the injector script did not report the key.
+  var mipDaemonRunning: Bool? { activation.state.mipDaemon }
+
   private weak var preferences: PreferencesStore?
   private let activation = ActivationModel()
   private var observers: [NSObjectProtocol] = []
   private var isAppleSilicon = true
+  /// When the last automatic injection ran. The injection restarts the host,
+  /// which launches the host again and would trigger another automatic
+  /// injection; the cooldown breaks that loop.
+  private var lastAutomaticInjection: Date?
+  /// True while a delayed automatic injection waits to run.
+  private var automaticInjectionScheduled = false
+  private var seenCompletedAttempts = 0
 
   private static let log = Logger(subsystem: "com.wiggly-sheets.spaces-renamer", category: "InjectionManager")
+  private static let automaticInjectionCooldown: TimeInterval = 30
 
   func start(preferences: PreferencesStore) {
     self.preferences = preferences
@@ -84,7 +103,7 @@ final class InjectionManager {
     activation.refresh { [weak self] in
       guard let self else { return }
       if injectIfEnabled, preferences?.automaticInjectionEnabled == true, !isActive {
-        injectNow()
+        self.injectAutomatically()
       }
     }
   }
@@ -94,20 +113,69 @@ final class InjectionManager {
       state: activation.state,
       hasLoaded: activation.hasLoaded,
       isBusy: activation.isBusy,
-      pluginIsLive: activation.pluginIsLive
+      pluginIsLive: activation.pluginIsLive,
+      errorMessage: activation.errorMessage
     )
   }
 
   func injectNow() {
-    Self.log.debug("Manual activation requested")
-    activation.backend = resolvedBackend()
+    let backend = resolvedBackend()
+    Self.log.notice("inject: activating backend=\(backend.rawValue)")
+    activation.backend = backend
     activation.activate()
   }
 
   func deactivate() {
-    Self.log.debug("Deactivation requested")
-    activation.backend = resolvedBackend()
+    let backend = resolvedBackend()
+    Self.log.notice("inject: deactivating backend=\(backend.rawValue)")
+    activation.backend = backend
     activation.deactivate()
+  }
+
+  /// Automatic injection, scheduled with a delay. The app can start before the
+  /// freshly restarted host has loaded the MIP bundle, so injecting straight
+  /// away would ask for elevation — and restart the host — on every login.
+  /// The attempt therefore waits, then re-checks the handshake.
+  private func injectAutomatically() {
+    guard !automaticInjectionScheduled else { return }
+    if let last = lastAutomaticInjection,
+       Date().timeIntervalSince(last) < Self.automaticInjectionCooldown {
+      Self.log.notice("inject: automatic injection skipped (cooldown)")
+      return
+    }
+    if activation.errorMessage != nil {
+      Self.log.notice("inject: automatic injection skipped (the last attempt failed)")
+      return
+    }
+    automaticInjectionScheduled = true
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(10))
+      guard let self else { return }
+      self.automaticInjectionScheduled = false
+      self.runScheduledAutomaticInjection()
+    }
+  }
+
+  /// Runs the delayed automatic injection after re-checking the guards and the
+  /// plugin handshake.
+  private func runScheduledAutomaticInjection() {
+    if let last = lastAutomaticInjection,
+       Date().timeIntervalSince(last) < Self.automaticInjectionCooldown {
+      Self.log.notice("inject: automatic injection skipped (cooldown)")
+      return
+    }
+    if activation.errorMessage != nil {
+      Self.log.notice("inject: automatic injection skipped (the last attempt failed)")
+      return
+    }
+    // The host may still be loading the bundle: read the handshake instead of
+    // trusting the cached flag.
+    if PluginMarker.current()?.isLive == true {
+      Self.log.notice("inject: automatic injection skipped (plugin is live)")
+      return
+    }
+    lastAutomaticInjection = Date()
+    injectNow()
   }
 
   private func resolvedBackend() -> InjectorBackend {
@@ -121,6 +189,7 @@ final class InjectionManager {
     let hasLoaded: Bool
     let isBusy: Bool
     let pluginIsLive: Bool
+    let errorMessage: String?
   }
 
   private func bindActivation() {
@@ -133,7 +202,8 @@ final class InjectionManager {
       state: activation.state,
       hasLoaded: activation.hasLoaded,
       isBusy: activation.isBusy,
-      pluginIsLive: activation.pluginIsLive
+      pluginIsLive: activation.pluginIsLive,
+      errorMessage: activation.errorMessage
     )
     recomputeState(snapshot: snapshot)
     withObservationTracking {
@@ -141,11 +211,25 @@ final class InjectionManager {
       _ = activation.hasLoaded
       _ = activation.isBusy
       _ = activation.pluginIsLive
+      _ = activation.errorMessage
+      _ = activation.completedAttempts
     } onChange: { [weak self] in
       guard let self else { return }
       Task { @MainActor in
+        self.reportActivationCompletion()
         self.bindActivation()
       }
+    }
+  }
+
+  /// Logs the end of an activation attempt. The attempt counter makes the
+  /// detection reliable even when several properties change at once.
+  private func reportActivationCompletion() {
+    guard activation.completedAttempts != seenCompletedAttempts else { return }
+    seenCompletedAttempts = activation.completedAttempts
+    Self.log.notice("inject: activation finished, plugin live=\(self.activation.pluginIsLive)")
+    if let output = activation.lastOutput, !output.isEmpty {
+      Self.log.notice("inject: injector output: \(output)")
     }
   }
 
@@ -171,6 +255,10 @@ final class InjectionManager {
     }
     if snapshot.isBusy {
       state = .activating
+      return
+    }
+    if let message = snapshot.errorMessage {
+      state = .error(message)
       return
     }
     if snapshot.pluginIsLive {
