@@ -10,14 +10,12 @@
 # publish stable releases; prerelease tags (containing `-`) publish
 # prereleases.
 #
-# After the release, stable tags bump homebrew/spacesrenamer.rb (version and
-# sha256 of the published DMG), commit it to master, and push the same file to
-# the consolidated wiggly-sheets/homebrew-tap tap repo (Casks/spacesrenamer.rb)
-# using the existing GH_TOKEN secret. Prerelease tags never touch the cask so
-# stable installs stay intact.
+# The Homebrew cask lives in the consolidated wiggly-sheets/homebrew-tap tap,
+# which renders it from its own template. This repository keeps no cask file,
+# and the workflow never writes into the tap.
 #
 # A non-gating tap test then proves the tap works end-to-end on the arm64
-# runner. The cask declares `depends_on arch: :arm64`, so Intel Macs are
+# runner. The tap's cask declares `depends_on arch: :arm64`, so Intel Macs are
 # refused by Homebrew instead of installing an app that cannot run there.
 #
 # Prerequisites for a production-quality release:
@@ -37,7 +35,7 @@ permissions:
 
 jobs:
   build:
-    name: Build, release, and bump cask
+    name: Build and release
     runs-on: macos-15
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -46,8 +44,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history so the cask bump can check out master after building
-          # from the pushed tag.
+          # Full history so the Makefile can read the release tag and the
+          # commit count: it derives the version from `git describe --tags`
+          # and the build number from `git rev-list --count`.
           fetch-depth: 0
 
       - name: Select Xcode
@@ -100,48 +99,6 @@ jobs:
             $PRERELEASE
           gh release upload "$GITHUB_REF_NAME" \
             "$DMG" "${DMG}.sha256"
-
-      - name: Bump cask and commit to master
-        if: ${{ !contains(github.ref_name, '-') }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          SHA256="$(cut -d' ' -f1 ".build/DerivedData/SpacesRenamer-v${VERSION}.dmg.sha256")"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Drop build products touched in the workspace (e.g. the tracked
-          # injection payload) before moving from the tag to master.
-          git restore .
-          git checkout -B master origin/master
-          scripts/bump-cask.sh "$VERSION" "$SHA256" homebrew/spacesrenamer.rb
-          git diff --check
-          git add homebrew/spacesrenamer.rb
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): bump cask to v${VERSION}"
-            git push origin master
-          else
-            echo "Cask already current for v${VERSION}; nothing to commit."
-          fi
-
-      - name: Push cask to tap repo
-        if: ${{ !contains(github.ref_name, '-') }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          TAP_REPO="wiggly-sheets/homebrew-tap"
-          TAP_URL="https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git"
-          rm -rf .tap-repo
-          git clone --depth 1 "$TAP_URL" .tap-repo
-          mkdir -p .tap-repo/Casks
-          cp homebrew/spacesrenamer.rb .tap-repo/Casks/spacesrenamer.rb
-          git -C .tap-repo config user.name "github-actions[bot]"
-          git -C .tap-repo config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C .tap-repo add Casks/spacesrenamer.rb
-          if ! git -C .tap-repo diff --cached --quiet; then
-            git -C .tap-repo commit -m "chore(release): bump cask to v${VERSION}"
-            DEFAULT_BRANCH="$(git -C .tap-repo symbolic-ref --short refs/remotes/origin/HEAD)"
-            git -C .tap-repo push origin "HEAD:${DEFAULT_BRANCH#origin/}"
-          else
-            echo "Tap cask already current for v${VERSION}; nothing to commit."
-          fi
 
   tap-test:
     name: Homebrew tap test (arm64)

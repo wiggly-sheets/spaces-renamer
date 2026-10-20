@@ -406,12 +406,12 @@ In priority order:
 - [x] Finalize GitHub Releases workflow and Homebrew tap test
   - Fix the artifact-name mismatch (`SpacesRenamer-{tag}.app.zip` vs the
     cask's `SpacesRenamer-v{version}.zip`).
-  - Auto-bump the cask in the release workflow: update
-    `homebrew/spacesrenamer.rb` (version + sha256), commit to master, and push
-    the same file to the tap repo `wiggly-sheets/homebrew-tap`
-    (`Casks/spacesrenamer.rb`) using the existing `GH_TOKEN` secret.
+  - The Homebrew cask lives in the tap repo `wiggly-sheets/homebrew-tap`,
+    which renders `Casks/spacesrenamer.rb` from its own template. This
+    repository keeps no cask file, and the release workflow does not write
+    into the tap.
   - Post-release tap-test job (non-gating): `brew tap` + `brew install --cask`
-    + version assert on the arm64 CI runner. The cask declares
+    + version assert on the arm64 CI runner. The tap's cask declares
     `depends_on arch: :arm64`, so Intel Macs are refused instead of installing
     an app that cannot work.
   - Release notes extracted from `CHANGELOG.md`; generic fallback; never fail

@@ -168,7 +168,6 @@ verify:
 
 test:
 	./scripts/tests/test_release_notes.sh
-	./scripts/tests/test_bump_cask.sh
 	./scripts/tests/test_make_dmg.sh
 	./scripts/tests/test_embed_injection.sh
 	./scripts/tests/test_injector_runtime.sh

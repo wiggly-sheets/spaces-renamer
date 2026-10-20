@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 recipe="$(make -n -C "$ROOT" verify)"
 MAKEFILE="$ROOT/Makefile"
-CASK="$ROOT/homebrew/spacesrenamer.rb"
 
 pass=0
 fail=0
@@ -103,7 +102,6 @@ assert_fixed "the build-all target exists" "build-all: app" "$MAKEFILE"
 assert_absent "the universal target is gone" "universal:" "$MAKEFILE"
 assert_absent "the app-tahoe target is gone" "app-tahoe" "$MAKEFILE"
 assert_absent "the app-gg target is gone" "app-gg" "$MAKEFILE"
-assert_fixed "the cask refuses Intel Macs" "depends_on arch: :arm64" "$CASK"
 
 # The private MIP runtime is committed, so its slices are checked always.
 echo
