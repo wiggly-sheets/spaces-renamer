@@ -273,16 +273,31 @@ make build-all
 Useful targets:
 
 ```bash
-make build-all         # Build both products, package the payload, verify
+make help               # List every target (default)
+make build              # Build the SwiftPM package
+make test               # Run repository contract tests
 make app                # Build the menu-bar app
+make dmg VERSION=1.0.0  # Create a distributable DMG
+make release-artifacts VERSION=1.0.0  # DMG plus the checksum file the tap reads
+make release VERSION=1.0.0  # Build the artifacts, tag v1.0.0 locally, print the push command
+make clean              # Remove the build output
+```
+
+Targets of the build itself:
+
+```bash
+make build-all         # Build both products, package the payload, verify
 make plugin             # Build the Dock bundle
 make package-injection  # Refresh the arm64e payload
 make bundle             # Assemble the MIP bundle
 make inject             # Activate DYLD manually (injector.sh dyld on)
 make verify             # Verify the arm-only slices and embedded payload
-make dmg VERSION=1.0.0  # Create a distributable DMG
-make test               # Run repository contract tests
 ```
+
+The version comes from the tag and from nowhere else. `make release VERSION=1.0.0`
+takes it from the command line, stamps it into the bundle and refuses to tag
+when the bundle reports another version. The release workflow takes it from
+the tag it runs for.
 
 ## Security and compatibility
 

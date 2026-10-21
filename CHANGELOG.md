@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- The build follows the shared Makefile vocabulary of the estate: `make` prints the list of the targets, and `build`, `test`, `app`, `dmg`, `release-artifacts`, `release VERSION=x.y.z` and `clean` do the work. `make release` takes the version from the command line, refuses a dirty working tree, a version whose tag already exists and a bundle that reports another version, creates the annotated tag locally and prints the push command. It never pushes.
+- The tag is the only source of the version. `MARKETING_VERSION` in the Xcode project is a build setting that the Makefile overrides, and the release workflow passes the version of the tag to the build.
+- The checksum file next to the disk image is written by `make release-artifacts` and names the bare asset now: the digest, two spaces, `SpacesRenamer-v<version>.dmg`. `shasum -c` reads it.
+
 ### Fixed
 
 - The Injection settings page no longer stretches the Settings window when the Details section is expanded: the details now scroll inside a bounded box.

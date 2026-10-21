@@ -3,12 +3,14 @@
 # Trigger: push a tag matching v* (e.g. v1.0.0)
 #
 # The workflow builds the Apple silicon app + bundle, packages them as a DMG named
-# exactly as the Homebrew cask expects (SpacesRenamer-v<version>.dmg) via
-# packaging/make-dmg.sh, and creates a GitHub Release with the DMG and checksum
-# attached. Release notes are extracted from the CHANGELOG section matching the
-# tag, falling back to a generic note when no section exists. Stable tags
-# publish stable releases; prerelease tags (containing `-`) publish
-# prereleases.
+# exactly as the Homebrew tap expects (SpacesRenamer-v<version>.dmg) with
+# `make release-artifacts`, and creates a GitHub Release with the DMG and the
+# checksum file attached. The version comes from the tag and from nowhere
+# else: the build stamps it into the bundle and the release fails when the
+# bundle reports another version. Release notes are extracted from the
+# CHANGELOG section matching the tag, falling back to a generic note when no
+# section exists. Stable tags publish stable releases; prerelease tags
+# (containing `-`) publish prereleases.
 #
 # The Homebrew cask lives in the consolidated wiggly-sheets/homebrew-tap tap,
 # which renders it from its own template. This repository keeps no cask file,
@@ -45,8 +47,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           # Full history so the Makefile can read the release tag and the
-          # commit count: it derives the version from `git describe --tags`
-          # and the build number from `git rev-list --count`.
+          # commit count: the build number comes from `git rev-list --count`.
+          # The version comes from the tag of this run.
           fetch-depth: 0
 
       - name: Select Xcode
@@ -61,8 +63,13 @@ jobs:
       - name: Run regression tests
         run: make test
 
-      - name: Build (Apple silicon)
-        run: make build-all
+      - name: Build the release artifacts
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          make release-artifacts VERSION="$VERSION"
+
+      - name: Verify the build
+        run: make verify
 
       - name: Verify app architecture
         run: |
@@ -77,12 +84,15 @@ jobs:
             test "$(lipo -archs .build/SpacesRenamer.app/Contents/Resources/mip/$f)" = "arm64e"
           done
 
-      - name: Create DMG
+      - name: Verify the bundle version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ./packaging/make-dmg.sh "$VERSION" \
-            ".build/SpacesRenamer.app" \
-            ".build/DerivedData"
+          BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' .build/SpacesRenamer.app/Contents/Info.plist)"
+          echo "The bundle reports ${BUNDLE_VERSION} (the tag says ${VERSION})"
+          if [[ "$BUNDLE_VERSION" != "$VERSION" ]]; then
+            echo "::error::The bundle reports ${BUNDLE_VERSION}, but the tag says ${VERSION}"
+            exit 1
+          fi
 
       - name: Create GitHub Release
         run: |

@@ -97,16 +97,30 @@ version, is the constraint.
   - Feeds `make bundle` for the MIP bundle.
 - `Makefile`
   - Canonical local build and architecture verification commands.
+  - `make` prints the list of the targets. The shared targets are `help`,
+    `build`, `test`, `app`, `dmg`, `release-artifacts`, `release VERSION=x.y.z`
+    and `clean`. The product is Apple silicon only, so there is no
+    per-architecture target.
   - `app` builds the SwiftPM package via xcodebuild for `arm64` and
     hand-assembles the app bundle; `plugin` stays xcodebuild (`arm64e`).
   - `build-all` builds both products, refreshes the tracked payload and runs
     architecture verification.
+  - `release-artifacts` writes the disk image and the checksum file next to
+    it. The checksum file holds one line: the digest, two spaces, the bare
+    file name.
+  - `release VERSION=x.y.z` takes the version from the command line, refuses a
+    dirty working tree, a version whose tag already exists and a bundle that
+    reports another version, creates the annotated tag and prints the push
+    command. It never pushes.
 
 ## Build and Verification
 
 Use the Makefile instead of constructing one-off Xcode commands:
 
 ```bash
+make help
+make build
+make test
 make app
 make plugin
 make package-injection
@@ -114,6 +128,9 @@ make bundle
 make inject
 make build-all
 make verify
+make dmg VERSION=1.0.0
+make release-artifacts VERSION=1.0.0
+make release VERSION=1.0.0
 ```
 
 Expected architectures:
@@ -148,6 +165,11 @@ Do not build the app with `swift build`: use `make app`.
 `injection/lib/spaces-renamer.dylib`. `make build-all` builds both products,
 updates that payload, and runs architecture verification. It replaces the old
 `make universal` target: nothing is universal any more.
+
+The version of a build comes from the command line (`VERSION=1.0.0`), and a
+release takes it from the tag. `MARKETING_VERSION` in `spaces-renamer.xcodeproj`
+is a build setting that the Makefile overrides; it is not a second source of
+truth.
 
 The build uses `CODE_SIGNING_ALLOWED=NO`, so local products are ad-hoc or
 linker-signed. Do not assume a stable Developer ID signature is present.

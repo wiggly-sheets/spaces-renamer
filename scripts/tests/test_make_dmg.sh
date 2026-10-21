@@ -26,9 +26,8 @@ assert_eq() {
 
 # Stub create-dmg: logs its arguments (one per line), records the staging
 # folder contents (the script deletes the folder on exit, so the stub must
-# capture it), and creates the requested output .dmg so the script's sha256
-# step succeeds. Prepend it to PATH so the real create-dmg (and its Finder
-# AppleScript) never runs.
+# capture it), and creates the requested output .dmg. Prepend it to PATH so
+# the real create-dmg (and its Finder AppleScript) never runs.
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/create-dmg" <<'EOF'
 #!/usr/bin/env bash
@@ -64,17 +63,12 @@ flag_args() {
   grep -A"$count" "^${flag}$" "$MAKE_DMG_LOG" | tail -n "$count" | tr '\n' ' ' | sed 's/ $//'
 }
 
-# 1. Produces SpacesRenamer-v<VERSION>.dmg + .sha256 with the packaging flags.
+# 1. Produces SpacesRenamer-v<VERSION>.dmg with the packaging flags. The
+#    checksum file is written by the Makefile target `release-artifacts`.
 make_fake_app "$TMP/SpacesRenamer.app" "yes"
 "$SCRIPT" 1.2.3 "$TMP/SpacesRenamer.app" "$TMP/out"
 assert_eq "creates dmg" "SpacesRenamer-v1.2.3.dmg" "$(basename "$TMP/out"/*.dmg)"
-assert_eq "creates sha256 sidecar" "SpacesRenamer-v1.2.3.dmg.sha256" "$(basename "$TMP/out"/*.sha256)"
-assert_eq "sidecar names the dmg" \
-  "SpacesRenamer-v1.2.3.dmg" \
-  "$(basename "$(awk '{print $2}' "$TMP/out/SpacesRenamer-v1.2.3.dmg.sha256")")"
-assert_eq "sidecar hash is 64 hex chars" \
-  "ok" \
-  "$(cut -d' ' -f1 "$TMP/out/SpacesRenamer-v1.2.3.dmg.sha256" | grep -E '^[0-9a-f]{64}$' >/dev/null && echo ok)"
+assert_eq "writes no checksum file" "0" "$(find "$TMP/out" -name '*.sha256' | wc -l | tr -d ' ')"
 assert_eq "uses volume name" "Spaces Renamer" "$(flag_args '--volname' 1)"
 assert_eq "uses packaged background" "$ROOT/packaging/background.png" "$(flag_args '--background' 1)"
 assert_eq "sets window size" "800 450" "$(flag_args '--window-size' 2)"
@@ -94,12 +88,15 @@ else
   echo "ok - --volicon omitted without an app icon"
 fi
 
-# 3. Version defaults to MARKETING_VERSION from the Xcode project.
-EXPECTED="$(grep -m1 -E '^[[:space:]]*MARKETING_VERSION = ' "$ROOT/spaces-renamer.xcodeproj/project.pbxproj" \
-  | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' \
-  | tr -d '[:space:]')"
-"$SCRIPT" "" "$TMP/SpacesRenamer.app" "$TMP/out3"
-assert_eq "derives version from project" "SpacesRenamer-v${EXPECTED}.dmg" "$(basename "$TMP/out3"/*.dmg)"
+# 3. The version is required: it comes from the caller, never from a file of
+#    the repository.
+if "$SCRIPT" "" "$TMP/SpacesRenamer.app" "$TMP/out3" >/dev/null 2>&1; then
+  fail=$((fail + 1))
+  echo "FAIL - a missing version should exit non-zero"
+else
+  pass=$((pass + 1))
+  echo "ok - a missing version exits non-zero"
+fi
 
 # 4. Missing app is an error.
 if "$SCRIPT" 1.0.0 "$TMP/missing.app" "$TMP/out4" >/dev/null 2>&1; then

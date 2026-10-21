@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Build the distributable Spaces Renamer disk image.
 #
-# Usage: make-dmg.sh [VERSION] [APP] [OUTPUT_DIR]
+# Usage: make-dmg.sh VERSION [APP] [OUTPUT_DIR]
 #
 #   VERSION    Release version, used in the artifact name
-#              SpacesRenamer-v<VERSION>.dmg. Defaults to MARKETING_VERSION
-#              from the Xcode project.
+#              SpacesRenamer-v<VERSION>.dmg. It is required: the version comes
+#              from the caller, never from a file of the repository.
 #   APP        Path to the built SpacesRenamer.app.
 #              Default: .build/DerivedData/Build/Products/Release/SpacesRenamer.app
-#   OUTPUT_DIR Directory for the .dmg and .sha256 sidecar.
+#   OUTPUT_DIR Directory for the .dmg.
 #              Default: .build/DerivedData
+#
+# The checksum file next to the image is written by the Makefile target
+# `release-artifacts`, which knows the name of the asset.
 #
 # The volume is prettified with packaging/background.png (matching icon cards
 # with baked-in "Drag to Applications" instructions) and an Applications
@@ -28,12 +31,7 @@ OUTPUT_DIR="${3:-$ROOT/.build/DerivedData}"
 BACKGROUND="$ROOT/packaging/background.png"
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(grep -m1 -E '^[[:space:]]*MARKETING_VERSION = ' "$ROOT/spaces-renamer.xcodeproj/project.pbxproj" \
-    | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' \
-    | tr -d '[:space:]')"
-fi
-if [[ -z "$VERSION" ]]; then
-  echo "error: unable to determine version (pass it as the first argument)" >&2
+  echo "error: the version is required (pass it as the first argument)" >&2
   exit 1
 fi
 # The version becomes part of a filesystem path, so keep it to safe
@@ -84,6 +82,4 @@ create-dmg \
   "$DMG" \
   "$STAGING"
 
-shasum -a 256 "$DMG" > "$DMG.sha256"
 echo "Created $DMG"
-echo "SHA256: $(cut -d' ' -f1 "$DMG.sha256")"
