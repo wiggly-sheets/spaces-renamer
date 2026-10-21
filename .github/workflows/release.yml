@@ -58,6 +58,9 @@ jobs:
       - name: Install create-dmg
         run: brew install create-dmg scdoc
 
+      - name: Run regression tests
+        run: make test
+
       - name: Build (Apple silicon)
         run: make build-all
 
