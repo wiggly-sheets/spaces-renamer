@@ -437,7 +437,7 @@ mip_runtime_status() {
 	else
 		echo "runtime_bundle=off"
 	fi
-	echo "runtime_service=$(mip_service_name)"
+	echo "runtime_service=$MIP_SERVICE_NAME"
 }
 
 status() {
