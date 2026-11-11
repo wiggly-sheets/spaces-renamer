@@ -147,7 +147,7 @@ private struct SpaceHUDView: View {
       .lineLimit(1)
       .padding(.horizontal, 30)
       .padding(.vertical, 20)
-      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
+      .glassBackground(in: .rect(cornerRadius: 26), fallbackMaterial: .ultraThinMaterial)
       .padding(24)
       .fixedSize()
   }

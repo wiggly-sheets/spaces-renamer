@@ -57,6 +57,8 @@ struct RenamerView: View {
         .help("Settings")
         .keyboardShortcut(",", modifiers: .command)
       }
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       if let error = spaces.errorMessage {
         VStack(spacing: 10) {
@@ -70,6 +72,8 @@ struct RenamerView: View {
             .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(16)
+        .glassBackground(in: .rect(cornerRadius: 12))
       } else {
         VStack(alignment: .leading, spacing: 16) {
           ForEach(spaces.snapshot) { display in

@@ -28,6 +28,8 @@ struct DiagnosticsView: View {
             }
           }
         }
+        .padding(12)
+        .glassBackground(in: .rect(cornerRadius: 10))
       }
 
       if let note = diagnostics.actionNote {
@@ -35,6 +37,8 @@ struct DiagnosticsView: View {
           .font(.footnote)
           .foregroundStyle(.secondary)
           .textSelection(.enabled)
+          .padding(12)
+          .glassBackground(in: .rect(cornerRadius: 10))
       }
 
       Divider()

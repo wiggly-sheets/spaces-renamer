@@ -36,12 +36,8 @@ struct SpaceCell: View {
         .focused($focused, equals: space.id)
         .onSubmit { preferences.setName(draft, for: space.id) }
     }
-    .padding(10)
-    .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
-    .overlay {
-      RoundedRectangle(cornerRadius: 10)
-        .stroke(space.isCurrent ? Color.accentColor.opacity(0.7) : .clear, lineWidth: 1.5)
-    }
+    .padding(12)
+    .glassBackground(in: .rect(cornerRadius: 10), fallbackMaterial: .quaternary)
     .onAppear { draft = preferences.name(for: space.id) }
     .onChange(of: preferences.activeProfileID) { _, _ in draft = preferences.name(for: space.id) }
     .onChange(of: preferences.namingMode) { _, _ in draft = preferences.name(for: space.id) }

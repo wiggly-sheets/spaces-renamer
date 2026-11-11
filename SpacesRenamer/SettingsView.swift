@@ -35,6 +35,7 @@ struct SettingsView: View {
         Label(section.rawValue, systemImage: section.icon)
       }
       .navigationSplitViewColumnWidth(min: 180, ideal: 190)
+      .glassBackground(in: .rect(cornerRadius: 12))
     } detail: {
       Group {
         switch selection ?? .general {
@@ -52,6 +53,7 @@ struct SettingsView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .padding(28)
+      .glassBackground(in: .rect(cornerRadius: 16))
     }
   }
 }
@@ -88,68 +90,82 @@ private struct InjectionSettingsView: View {
             .textSelection(.enabled)
         }
       }
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       if let warning = injection.prerequisitesWarning {
         Label(warning, systemImage: "exclamationmark.triangle")
           .font(.callout)
           .foregroundStyle(.orange)
+          .padding(12)
+          .glassBackground(in: .rect(cornerRadius: 10))
       }
 
       Divider()
 
-      HStack(alignment: .firstTextBaseline, spacing: 6) {
-        Picker("Injection method", selection: Binding(
-          get: { preferences.injectionMode },
-          set: { preferences.setInjectionMode($0) }
-        )) {
-          ForEach(InjectionMode.allCases) { mode in
-            Text(mode.title).tag(mode)
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Picker("Injection method", selection: Binding(
+            get: { preferences.injectionMode },
+            set: { preferences.setInjectionMode($0) }
+          )) {
+            ForEach(InjectionMode.allCases) { mode in
+              Text(mode.title).tag(mode)
+            }
           }
-        }
-        .pickerStyle(.radioGroup)
-        .help(Self.methodHelp)
-
-        Image(systemName: "info.circle")
-          .foregroundStyle(.secondary)
+          .pickerStyle(.radioGroup)
           .help(Self.methodHelp)
-      }
 
-      Text(injection.activeBackendCaption)
-        .font(.callout)
-        .foregroundStyle(.secondary)
-
-      Button {
-        if injection.state == .active {
-          preferences.setAutomaticInjectionEnabled(false)
-          injection.deactivate()
-        } else {
-          preferences.setInjectionConsent(true)
-          injection.injectNow()
+          Image(systemName: "info.circle")
+            .foregroundStyle(.secondary)
+            .help(Self.methodHelp)
         }
-      } label: {
-        Text(injection.state == .active ? "Deactivate" : "Activate")
-      }
-      .buttonStyle(.borderedProminent)
-      .disabled(injection.operationInProgress)
 
-      if injection.runtimeInstalled == true {
-        Button(role: .destructive) {
-          injection.uninstallMIPRuntime()
-        } label: {
-          Label("Remove injection runtime", systemImage: "trash")
-        }
-        .controlSize(.small)
-        .disabled(injection.operationInProgress)
-        .help("Removes the private runtime in \(Injector.privateMIPRoot). It stays in the app, so it can be installed again.")
-      }
-
-      HStack(spacing: 8) {
-        Text("Launch Spaces Renamer at login")
-        Spacer()
-        Text(preferences.loginItemEnabled ? "On" : "Off")
+        Text(injection.activeBackendCaption)
+          .font(.callout)
           .foregroundStyle(.secondary)
       }
-      .help("Controlled in General. The app re-injects automatically when it is running.")
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
+
+      HStack(spacing: 12) {
+        Button {
+          if injection.state == .active {
+            preferences.setAutomaticInjectionEnabled(false)
+            injection.deactivate()
+          } else {
+            preferences.setInjectionConsent(true)
+            injection.injectNow()
+          }
+        } label: {
+          Text(injection.state == .active ? "Deactivate" : "Activate")
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(injection.operationInProgress)
+
+        if injection.runtimeInstalled == true {
+          Button(role: .destructive) {
+            injection.uninstallMIPRuntime()
+          } label: {
+            Label("Remove injection runtime", systemImage: "trash")
+          }
+          .controlSize(.small)
+          .disabled(injection.operationInProgress)
+          .help("Removes the private runtime in \(Injector.privateMIPRoot). It stays in the app, so it can be installed again.")
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
+          Text("Launch Spaces Renamer at login")
+          Spacer()
+          Text(preferences.loginItemEnabled ? "On" : "Off")
+            .foregroundStyle(.secondary)
+        }
+        .help("Controlled in General. The app re-injects automatically when it is running.")
+      }
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       DisclosureGroup("Details", isExpanded: $showsDetails) {
         ScrollView {
@@ -174,6 +190,8 @@ private struct InjectionSettingsView: View {
         .frame(maxHeight: 120)
       }
       .font(.callout)
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
     }
   }
 
@@ -206,10 +224,14 @@ private struct SpaceSettingsView: View {
             .foregroundStyle(.secondary)
         }
       }
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       if let error = spaces.errorMessage {
         Label(error, systemImage: "exclamationmark.triangle")
           .foregroundStyle(.red)
+          .padding(12)
+          .glassBackground(in: .rect(cornerRadius: 10))
       } else {
         ScrollView {
           VStack(alignment: .leading, spacing: 16) {
@@ -252,10 +274,13 @@ private struct GeneralSettingsView: View {
         get: { preferences.showMenuBarIcon },
         set: { preferences.setShowMenuBarIcon($0) }
       ))
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       Text("If hidden, reopen Spaces Renamer from Applications to show Settings.")
         .font(.callout)
         .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
 
       Picker("Menu bar display", selection: Binding(
         get: { preferences.menuBarDisplayMode },
@@ -267,10 +292,13 @@ private struct GeneralSettingsView: View {
       }
       .pickerStyle(.radioGroup)
       .disabled(!preferences.showMenuBarIcon)
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       Text("Show the Spaces Renamer symbol, the current name such as \"Code,\" or its number and name such as \"1. Code.\"")
         .font(.callout)
         .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
 
       Divider()
 
@@ -278,10 +306,13 @@ private struct GeneralSettingsView: View {
         get: { preferences.showSpaceChangeHUD },
         set: { preferences.setShowSpaceChangeHUD($0) }
       ))
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       Text("Briefly show the current Space's name on every display when you switch Spaces.")
         .font(.callout)
         .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
 
       Divider()
 
@@ -289,30 +320,38 @@ private struct GeneralSettingsView: View {
         get: { preferences.loginItemEnabled },
         set: { preferences.setLoginItemEnabled($0) }
       ))
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       Divider()
 
-      HStack {
-        VStack(alignment: .leading, spacing: 4) {
-          Text(NativeAppManagement.isInApplicationsFolder ? "Installed in Applications" : "App location")
-            .font(.headline)
-          Text(NativeAppManagement.isInApplicationsFolder
-            ? "Spaces Renamer is in the recommended location."
-            : "Move the app to /Applications for reliable login-item behavior.")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
-        if !NativeAppManagement.isInApplicationsFolder {
-          Button("Move to Applications") {
-            NativeAppManagement.moveToApplications()
+      VStack(alignment: .leading, spacing: 8) {
+        HStack {
+          VStack(alignment: .leading, spacing: 4) {
+            Text(NativeAppManagement.isInApplicationsFolder ? "Installed in Applications" : "App location")
+              .font(.headline)
+            Text(NativeAppManagement.isInApplicationsFolder
+              ? "Spaces Renamer is in the recommended location."
+              : "Move the app to /Applications for reliable login-item behavior.")
+              .font(.callout)
+              .foregroundStyle(.secondary)
+          }
+          Spacer()
+          if !NativeAppManagement.isInApplicationsFolder {
+            Button("Move to Applications") {
+              NativeAppManagement.moveToApplications()
+            }
           }
         }
       }
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       if let error = preferences.lastError {
         Label(error, systemImage: "exclamationmark.triangle")
           .foregroundStyle(.red)
+          .padding(12)
+          .glassBackground(in: .rect(cornerRadius: 10))
       }
     }
   }
@@ -341,9 +380,7 @@ private struct ProfileSettingsView: View {
         }
         .frame(width: 220)
         .frame(minHeight: 260)
-        .overlay {
-          RoundedRectangle(cornerRadius: 8).stroke(.separator)
-        }
+        .glassBackground(in: .rect(cornerRadius: 12))
 
         VStack(alignment: .leading, spacing: 14) {
           TextField("Profile name", text: $editedName)
@@ -379,6 +416,8 @@ private struct ProfileSettingsView: View {
             .disabled(preferences.profiles.count <= 1 || selectedProfileID == nil)
           }
         }
+        .padding(16)
+        .glassBackground(in: .rect(cornerRadius: 12))
       }
     }
     .onAppear {
@@ -413,14 +452,18 @@ private struct HotkeySettingsView: View {
         ))
         .frame(width: 220, height: 32)
       }
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       Button("Restore Default") {
         preferences.updateHotkey(HotkeyPreference())
       }
+      .padding(.horizontal, 16)
 
       Text("Click the recorder, then press a shortcut containing at least one modifier. Press Escape to cancel. Changes apply immediately.")
         .font(.callout)
         .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
     }
   }
 }
@@ -588,50 +631,66 @@ private struct AutomaticNamingSettingsView: View {
         }
       }
       .pickerStyle(.radioGroup)
+      .padding(16)
+      .glassBackground(in: .rect(cornerRadius: 12))
 
       Text(modeExplanation)
         .font(.callout)
         .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
 
       if preferences.namingMode == .applications {
         Toggle("List each window separately", isOn: Binding(
           get: { preferences.showDuplicateApplications },
           set: { preferences.setShowDuplicateApplications($0) }
         ))
+        .padding(16)
+        .glassBackground(in: .rect(cornerRadius: 12))
 
         Text("When enabled, two Safari windows appear as \"Safari · Safari.\" Off by default.")
           .font(.callout)
           .foregroundStyle(.secondary)
+          .padding(.horizontal, 16)
       }
 
       if preferences.namingMode != .manual {
         Divider()
+
         YabaiStatusView()
+          .padding(16)
+          .glassBackground(in: .rect(cornerRadius: 12))
       }
 
       Divider()
 
       Text("Preview")
         .font(.headline)
-      ForEach(spaces.snapshot.flatMap(\.spaces)) { space in
-        HStack {
-          Text("Space \(space.index)")
-            .frame(width: 72, alignment: .leading)
-          Spacer()
-          if preferences.namingMode == .manual {
-            TextField("Unnamed", text: Binding(
-              get: { preferences.name(for: space.id) },
-              set: { preferences.setName($0, for: space.id) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 260)
-            .accessibilityLabel("Name for Space \(space.index)")
-          } else {
-            Text(previewName(for: space))
-              .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
+
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(spaces.snapshot.flatMap(\.spaces)) { space in
+          HStack {
+            Text("Space \(space.index)")
+              .frame(width: 72, alignment: .leading)
+            Spacer()
+            if preferences.namingMode == .manual {
+              TextField("Unnamed", text: Binding(
+                get: { preferences.name(for: space.id) },
+                set: { preferences.setName($0, for: space.id) }
+              ))
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 260)
+              .accessibilityLabel("Name for Space \(space.index)")
+            } else {
+              Text(previewName(for: space))
+                .foregroundStyle(.secondary)
+            }
           }
+          .padding(12)
+          .glassBackground(in: .rect(cornerRadius: 10))
         }
       }
+      .padding(.horizontal, 16)
     }
   }
 
@@ -741,5 +800,7 @@ private struct SettingsPage<Content: View>: View {
       content
       Spacer()
     }
+    .padding(24)
+    .glassBackground(in: .rect(cornerRadius: 16))
   }
 }
