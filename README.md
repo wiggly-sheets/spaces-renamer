@@ -275,11 +275,14 @@ Useful targets:
 ```bash
 make help               # List every target (default)
 make build              # Build the SwiftPM package
-make test               # Run repository contract tests
+make test               # Run the changelog check and the repository contract tests
+make run                # Install into ~/Applications and launch
 make app                # Build the menu-bar app
+make verify             # Verify the arm-only slices and the embedded payload
 make dmg VERSION=1.0.0  # Create a distributable DMG
 make release-artifacts VERSION=1.0.0  # DMG plus the checksum file the tap reads
-make release VERSION=1.0.0  # Build the artifacts, tag v1.0.0 locally, print the push command
+make release-notes VERSION=1.0.0      # Preview the changelog section
+make release VERSION=1.0.0  # Bump, test, build, verify, commit and tag
 make clean              # Remove the build output
 ```
 
@@ -295,9 +298,10 @@ make verify             # Verify the arm-only slices and embedded payload
 ```
 
 The version comes from the tag and from nowhere else. `make release VERSION=1.0.0`
-takes it from the command line, stamps it into the bundle and refuses to tag
-when the bundle reports another version. The release workflow takes it from
-the tag it runs for.
+moves `[Unreleased]` to that version, stamps it into the bundle, runs the tests,
+builds and verifies the artifacts, commits the changelog bump and creates the
+tag locally. It refuses to tag when the bundle reports another version, and it
+never pushes. The release workflow takes the version from the tag it runs for.
 
 ## Security and compatibility
 

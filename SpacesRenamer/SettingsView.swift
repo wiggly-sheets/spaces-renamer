@@ -332,7 +332,7 @@ private struct GeneralSettingsView: View {
               .font(.headline)
             Text(NativeAppManagement.isInApplicationsFolder
               ? "Spaces Renamer is in the recommended location."
-              : "Move the app to /Applications for reliable login-item behavior.")
+              : "Move the app to an Applications folder for reliable login-item behavior.")
               .font(.callout)
               .foregroundStyle(.secondary)
           }

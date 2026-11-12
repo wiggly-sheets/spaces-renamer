@@ -9,6 +9,8 @@ DERIVED_DATA := .build/DerivedData
 XCODEBUILD := xcodebuild -project $(PROJECT) -configuration Release -derivedDataPath $(DERIVED_DATA) CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=NO
 # SwiftPM-assembled app.
 APP := .build/SpacesRenamer.app
+INSTALL_DIR ?= $(HOME)/Applications
+INSTALL_APP := $(INSTALL_DIR)/SpacesRenamer.app
 MANPAGE := .build/man/sr.1
 # Resolved once, at parse time. The build regenerates tracked files (the
 # injection payload), so a lazily expanded `git describe` would read "-dirty"
@@ -44,7 +46,8 @@ APP_BUILD := cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration 
 # matches the assets by name, so these names never change.
 DMG_NAME := SpacesRenamer-v$(VERSION).dmg
 
-.PHONY: help build test app plugin bundle package-injection mip build-all dmg background man verify inject release-artifacts release clean
+.PHONY: help build test verify run install app plugin bundle package-injection mip \
+	build-all dmg background man inject release-artifacts release-notes release clean
 
 .DEFAULT_GOAL := help
 
@@ -56,11 +59,14 @@ help:
 		'' \
 		'  help                 List every target (default).' \
 		'  build                Build the SwiftPM package with xcodebuild.' \
-		'  test                 Run the test suite.' \
+		'  test                 Run the changelog check and the test suite.' \
+		'  run                  Install the app bundle into ~/Applications and launch it.' \
+		'  install              Copy the app bundle into ~/Applications.' \
 		'  app                  Build the shipping bundle into .build/SpacesRenamer.app.' \
 		'  dmg                  Build the disk image .build/DerivedData/SpacesRenamer-v<version>.dmg.' \
-		'  release-artifacts    Build the DMG and write the checksum file the Homebrew tap reads.' \
-		'  release VERSION=x.y.z  Build the artifacts, tag v<x.y.z> locally, print the push command.' \
+		'  release-artifacts    Build the DMG and the checksum file, then verify the checksum.' \
+		'  release-notes VERSION=x.y.z  Print the changelog section of a version.' \
+		'  release VERSION=x.y.z  Bump the changelog, test, build, verify, commit and tag.' \
 		'  clean                Remove the build output.' \
 		'' \
 		'  build-all            Build the app and the Dock bundle, then verify the slices.' \
@@ -80,9 +86,10 @@ help:
 		'  release workflow take the version from the command line and stamp it into the' \
 		'  bundle. MARKETING_VERSION in spaces-renamer.xcodeproj is a build setting that' \
 		'  the Makefile overrides; it is not a second source of truth.' \
-		'  `make release` refuses a dirty working tree, a version whose tag already exists' \
-		'  and a bundle that reports another version than the one asked for. It creates the' \
-		'  annotated tag v<x.y.z> and prints the push command. It never pushes.' \
+		'  CHANGELOG.md follows the shared shape and `make test` checks it.' \
+		'  `make release` moves [Unreleased] to the version, runs the tests, builds and' \
+		'  verifies the artifacts, commits the bump and creates the annotated tag.' \
+		'  It prints the push commands and never pushes.' \
 		'  The checksum file holds one line per asset: the digest, two spaces, the bare' \
 		'  file name. The names of the assets never change, because the tap matches them.' \
 		'  Signing stays ad-hoc: identity "-", no certificate, no notarization.' \
@@ -98,6 +105,7 @@ build:
 ## test — test suite
 
 test:
+	./scripts/changelog.sh check
 	./scripts/tests/test_release_notes.sh
 	./scripts/tests/test_make_dmg.sh
 	./scripts/tests/test_embed_injection.sh
@@ -151,6 +159,19 @@ app: bundle man
 	cp "$(MANPAGE)" "$(APP)/Contents/Resources/man/man1/sr.1"
 	# Bundle injection stack into app resources.
 	./scripts/embed-injection.sh "$(APP)"
+
+## install — copy the bundle into ~/Applications
+
+install: app
+	mkdir -p "$(INSTALL_DIR)"
+	rm -rf "$(INSTALL_APP)"
+	cp -R "$(APP)" "$(INSTALL_APP)"
+	@echo "Installed $(INSTALL_APP)"
+
+## run — install the bundle and launch it
+
+run: install
+	open "$(INSTALL_APP)"
 
 plugin:
 	# MARKETING_VERSION is a project build setting, not a second source of the
@@ -221,45 +242,27 @@ release-artifacts: dmg
 	# The checksum file holds one line per asset: the digest, two spaces, the
 	# bare file name. The tap reads it next to the asset.
 	@cd "$(DERIVED_DATA)" && shasum -a 256 "$(DMG_NAME)" > "$(DMG_NAME).sha256"
+	@cd "$(DERIVED_DATA)" && shasum -a 256 -c "$(DMG_NAME).sha256"
 	@echo "$(DERIVED_DATA)/$(DMG_NAME).sha256:"
 	@cat "$(DERIVED_DATA)/$(DMG_NAME).sha256"
 
-## release — build the artifacts and tag them, without pushing
+## release-notes — print the changelog section of a version
+
+release-notes:
+	@if [ -z "$(strip $(VERSION))" ]; then \
+		echo "error: make release-notes needs a version, for example: make release-notes VERSION=1.2.3"; \
+		exit 1; \
+	fi
+	@./scripts/changelog.sh notes "$(VERSION)"
+
+## release — bump, test, build, verify, commit and tag, without pushing
 
 release:
 	@if [ "$(origin VERSION)" != "command line" ]; then \
 		echo "error: make release needs a version on the command line, for example: make release VERSION=1.2.3"; \
 		exit 1; \
 	fi
-	# The version is read from the environment here, so a version that holds a
-	# quote cannot break out of this command line. Every line below runs only
-	# after this check passed, so the version is safe to write out.
-	@if ! printf '%s' "$$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$'; then \
-		echo "error: the version \"$(VERSION)\" is not valid. Use MAJOR.MINOR.PATCH, for example 1.2.3."; \
-		exit 1; \
-	fi
-	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "error: the working tree is dirty. Commit or stash your changes first."; \
-		git status --short; \
-		exit 1; \
-	fi
-	@if git rev-parse -q --verify "refs/tags/v$(VERSION)" >/dev/null; then \
-		echo "error: the tag v$(VERSION) already exists."; \
-		exit 1; \
-	fi
-	$(MAKE) release-artifacts VERSION=$(VERSION)
-	@if ! bundle_version="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$(APP)/Contents/Info.plist")"; then \
-		echo "error: the bundle reports no version."; \
-		exit 1; \
-	fi; \
-	if [ "$$bundle_version" != "$(VERSION)" ]; then \
-		echo "error: the bundle reports the version $$bundle_version, but $(VERSION) was asked for."; \
-		exit 1; \
-	fi
-	git tag -a "v$(VERSION)" -m "Spaces Renamer $(VERSION)"
-	@echo ""
-	@echo "Tagged v$(VERSION). Push the commit and the tag with:"
-	@echo "  git push origin master v$(VERSION)"
+	@APP_NAME="Spaces Renamer" ./scripts/release.sh "$(VERSION)"
 
 background:
 	swift packaging/render-background.swift packaging/background.png

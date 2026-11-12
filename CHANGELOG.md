@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 
@@ -21,6 +21,8 @@
 - The injected payload reports the same version as the app: the `plugin` target now passes `MARKETING_VERSION`, which was stuck at the project default and made the plugin version (and any staleness check) meaningless.
 - First-launch injection consent now waits for the asynchronous setup check, so a missing boot argument or SIP configuration shows the setup notice instead of starting elevation immediately.
 - Injection runtime status reports the launchservicesd hook as unknown instead of off when the app cannot read the root-owned process, and a staging build clears a stale Spaces error.
+
+<!-- pre-versioning -->
 
 ## 1.1.1 (2026-10-19)
 

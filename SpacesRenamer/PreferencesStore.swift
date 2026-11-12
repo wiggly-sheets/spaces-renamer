@@ -123,7 +123,7 @@ final class PreferencesStore {
   /// Test seam: points persistence at `fileURL` and selects whether names
   /// publish into the live `com.apple.dock` preference domain. Production
   /// publishes only when `NativeAppManagement.publishesToDockNames` is true:
-  /// the copy installed in /Applications, or any copy started with
+  /// the copy installed in an Applications folder, or any copy started with
   /// `-publishDockNames YES`.
   init(fileURL: URL, publishesToDockDomain: Bool) {
     self.fileURL = fileURL
@@ -465,8 +465,28 @@ final class PreferencesStore {
 }
 
 enum NativeAppManagement {
+  /// True when the bundle sits inside `/Applications` or `~/Applications`.
+  /// Both count as installed: the system folder holds a Homebrew install, and
+  /// the user folder holds a local `make run` install. The check is
+  /// component-wise, so `/Applications-old` is not an Applications folder.
+  static func isInApplications(
+    path: String,
+    homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+  ) -> Bool {
+    let candidate = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+    let folders = [
+      URL(fileURLWithPath: "/Applications", isDirectory: true),
+      homeDirectory.appendingPathComponent("Applications", isDirectory: true),
+    ]
+    return folders.contains { folder in
+      let folderComponents = folder.standardizedFileURL.pathComponents
+      return candidate.count > folderComponents.count
+        && Array(candidate.prefix(folderComponents.count)) == folderComponents
+    }
+  }
+
   static var isInApplicationsFolder: Bool {
-    Bundle.main.bundleURL.path.hasPrefix("/Applications/")
+    isInApplications(path: Bundle.main.bundleURL.path)
   }
 
   /// Live `com.apple.dock` writes belong to the installed copy only, so a
@@ -476,8 +496,8 @@ enum NativeAppManagement {
     isInApplicationsFolder || UserDefaults.standard.bool(forKey: "publishDockNames")
   }
 
-  /// Returns true when a copy in /Applications is being launched and this
-  /// process will terminate. Callers must stop onboarding in that case.
+  /// Returns true when a copy outside an Applications folder is being launched
+  /// and this process will terminate. Callers must stop onboarding in that case.
   static func promptToMoveIfNeeded() -> Bool {
     guard !isInApplicationsFolder, !UserDefaults.standard.bool(forKey: "declinedMoveToApplications") else {
       return false
@@ -523,7 +543,7 @@ enum NativeAppManagement {
   private static func presentError(_ error: Error) {
     DispatchQueue.main.async {
       let alert = NSAlert(error: error)
-      alert.informativeText += "\nMove the app to /Applications in Finder, then reopen it."
+      alert.informativeText += "\nMove the app to an Applications folder in Finder, then reopen it."
       alert.runModal()
     }
   }

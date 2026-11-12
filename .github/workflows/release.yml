@@ -7,10 +7,10 @@
 # `make release-artifacts`, and creates a GitHub Release with the DMG and the
 # checksum file attached. The version comes from the tag and from nowhere
 # else: the build stamps it into the bundle and the release fails when the
-# bundle reports another version. Release notes are extracted from the
-# CHANGELOG section matching the tag, falling back to a generic note when no
-# section exists. Stable tags publish stable releases; prerelease tags
-# (containing `-`) publish prereleases.
+# bundle reports another version. Release notes are the CHANGELOG section
+# matching the tag; a stable version without a section fails the release.
+# Stable tags publish stable releases; prerelease tags (containing `-`)
+# publish prereleases.
 #
 # The Homebrew cask lives in the consolidated wiggly-sheets/homebrew-tap tap,
 # which renders it from its own template. This repository keeps no cask file,
@@ -53,6 +53,15 @@ jobs:
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: The tag must sit on the default branch
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin master
+          if ! git merge-base --is-ancestor HEAD origin/master; then
+            echo "::error::The tag ${GITHUB_REF_NAME} is not on origin/master; cut it from the default branch"
+            exit 1
+          fi
 
       - name: Install GitHub CLI
         run: brew install gh
@@ -100,14 +109,22 @@ jobs:
           DMG=".build/DerivedData/SpacesRenamer-v${VERSION}.dmg"
           NOTES_FILE="$(mktemp)"
           trap 'rm -f "$NOTES_FILE"' EXIT
-          scripts/release-notes.sh "$VERSION" > "$NOTES_FILE"
+          scripts/changelog.sh notes "$VERSION" > "$NOTES_FILE"
+          {
+            echo ""
+            echo "## Checksums"
+            echo ""
+            echo '```'
+            cat "${DMG}.sha256"
+            echo '```'
+          } >> "$NOTES_FILE"
           PRERELEASE=""
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             PRERELEASE="--prerelease"
           fi
           gh release create "$GITHUB_REF_NAME" \
             --repo "${{ github.repository }}" \
-            --title "${GITHUB_REPOSITORY#*/} ${GITHUB_REF_NAME}" \
+            --title "Spaces Renamer ${VERSION}" \
             --notes-file "$NOTES_FILE" \
             $PRERELEASE
           gh release upload "$GITHUB_REF_NAME" \

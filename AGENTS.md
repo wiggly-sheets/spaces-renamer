@@ -98,9 +98,13 @@ version, is the constraint.
 - `Makefile`
   - Canonical local build and architecture verification commands.
   - `make` prints the list of the targets. The shared targets are `help`,
-    `build`, `test`, `app`, `dmg`, `release-artifacts`, `release VERSION=x.y.z`
+    `build`, `test`, `verify`, `run`, `install`, `app`, `dmg`,
+    `release-artifacts`, `release-notes VERSION=x.y.z`, `release VERSION=x.y.z`
     and `clean`. The product is Apple silicon only, so there is no
     per-architecture target.
+  - `test` runs the changelog shape check before the shell and Swift suites.
+  - `run` installs the app into `~/Applications` and launches it; `install`
+    only copies it. The app treats `/Applications` and `~/Applications` alike.
   - `app` builds the SwiftPM package via xcodebuild for `arm64` and
     hand-assembles the app bundle; `plugin` stays xcodebuild (`arm64e`).
   - `build-all` builds both products, refreshes the tracked payload and runs
@@ -108,10 +112,11 @@ version, is the constraint.
   - `release-artifacts` writes the disk image and the checksum file next to
     it. The checksum file holds one line: the digest, two spaces, the bare
     file name.
-  - `release VERSION=x.y.z` takes the version from the command line, refuses a
-    dirty working tree, a version whose tag already exists and a bundle that
-    reports another version, creates the annotated tag and prints the push
-    command. It never pushes.
+  - `release VERSION=x.y.z` moves `[Unreleased]` to the version, runs the
+    tests, builds and verifies the artifacts, commits the changelog bump,
+    creates the annotated tag and prints the push commands. It refuses a dirty
+    working tree, a version whose tag already exists and a HEAD that is not on
+    the default branch. It never pushes.
 
 ## Build and Verification
 
@@ -121,6 +126,8 @@ Use the Makefile instead of constructing one-off Xcode commands:
 make help
 make build
 make test
+make run
+make install
 make app
 make plugin
 make package-injection
@@ -130,6 +137,7 @@ make build-all
 make verify
 make dmg VERSION=1.0.0
 make release-artifacts VERSION=1.0.0
+make release-notes VERSION=1.0.0
 make release VERSION=1.0.0
 ```
 
@@ -394,7 +402,8 @@ personal yabairc hook only after the app-managed path is proven.
 ## Native App Management
 
 - Launch at login uses `SMAppService.mainApp`.
-- The app can offer to move itself to `/Applications`.
+- The app treats `/Applications` and `~/Applications` as installed and can
+  offer to move itself to `/Applications`.
 - Reopening an already-running app opens Settings.
 - The application is an accessory app (`LSUIElement`) and must retain a
   functioning status item or Settings reopen path.
