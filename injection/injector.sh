@@ -110,8 +110,11 @@ dyld_on() {
 	dylib=$(cd "$(dirname "$dylib")" && printf '%s/%s' "$(pwd)" "$(basename "$dylib")")
 
 	env_val=$(launchctl getenv "$DYLD_VAR" 2>/dev/null || true)
-	if dyld_is_active "$env_val"; then
-		log "dyld already active"
+	# Active and already staging this exact payload: nothing to restart for. A different
+	# payload (for example after an app update) must be restaged even when the agent is on,
+	# otherwise the host keeps running the old hook forever.
+	if dyld_is_active "$env_val" && /usr/bin/cmp -s "$dylib" "$DYLIB_STORE"; then
+		log "dyld already active with this payload"
 		return 0
 	fi
 
@@ -230,13 +233,31 @@ mip_lsd_pid() {
 	/usr/bin/pgrep -x launchservicesd 2>/dev/null | head -1
 }
 
-# The MIP hook is a dylib mapped into launchservicesd. Root can read the mapping list, so the
-# check is exact. Both the system MIP install and the private runtime map a file called
-# lsdinjector.dylib.
-mip_lsd_hooked() {
+# The MIP hook is a dylib mapped into launchservicesd. Both the system MIP install and the
+# private runtime map a file called lsdinjector.dylib. launchservicesd runs as root, so only an
+# elevated check can read its mapping list; an unprivileged status read must say "unknown"
+# instead of claiming the hook is missing.
+# Prints on, off, or unknown.
+mip_lsd_hook_state() {
 	pid=$(mip_lsd_pid)
-	[ -n "$pid" ] || return 1
-	/usr/sbin/lsof -p "$pid" 2>/dev/null | grep -q "lsdinjector.dylib"
+	if [ -z "$pid" ]; then
+		echo off
+		return 0
+	fi
+	listing=$(/usr/sbin/lsof -p "$pid" 2>/dev/null) || listing=""
+	if [ -z "$listing" ]; then
+		if [ "$(id -u)" -eq 0 ]; then echo off; else echo unknown; fi
+		return 0
+	fi
+	case "$listing" in
+	*lsdinjector.dylib*) echo on ;;
+	*) echo off ;;
+	esac
+}
+
+# True only when the hook is definitively present. Used by the repair path, which runs as root.
+mip_lsd_hooked() {
+	[ "$(mip_lsd_hook_state)" = on ]
 }
 
 # Remove our bundle from a root. Only our bundle: the runtime in that root and every other
@@ -431,7 +452,7 @@ mip_runtime_status() {
 	echo "runtime_root=$rt_root"
 	if mip_runtime_installed; then echo "runtime_installed=on"; else echo "runtime_installed=off"; fi
 	if mip_daemon_alive; then echo "runtime_daemon=up"; else echo "runtime_daemon=down"; fi
-	if mip_lsd_hooked; then echo "runtime_hooked=on"; else echo "runtime_hooked=off"; fi
+	echo "runtime_hooked=$(mip_lsd_hook_state)"
 	if [ -d "$(mip_bundles_dir "$rt_root")/$MIP_BUNDLE_NAME" ]; then
 		echo "runtime_bundle=on"
 	else

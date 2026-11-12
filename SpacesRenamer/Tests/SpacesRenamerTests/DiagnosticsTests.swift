@@ -106,6 +106,33 @@ final class DiagnosticsTests: XCTestCase {
     )
   }
 
+  func testInjectionRuntimeFailsWhenTheHookIsDefinitivelyMissing() {
+    let state = InjectorState(statusOutput: """
+    runtime_root=/Library/SpacesRenamer/mip
+    runtime_installed=on
+    runtime_daemon=up
+    runtime_hooked=off
+    """)
+
+    let check = DiagnosticsModel.injectionRuntime(state)
+
+    XCTAssertEqual(check.status, .fail)
+    XCTAssertTrue(check.remedy?.contains("launchservicesd has no hook") == true)
+  }
+
+  func testInjectionRuntimePassesWhenTheHookStateIsUnknown() {
+    // An unprivileged read cannot inspect the root-owned launchservicesd, so nil must
+    // not fail the check.
+    let state = InjectorState(statusOutput: """
+    runtime_root=/Library/SpacesRenamer/mip
+    runtime_installed=on
+    runtime_daemon=up
+    runtime_hooked=unknown
+    """)
+
+    XCTAssertEqual(DiagnosticsModel.injectionRuntime(state).status, .pass)
+  }
+
   func testInjectionRuntimeReportsAnUnreadableStatus() {
     var state = InjectorState()
     state.readError = "Could not read injector status."

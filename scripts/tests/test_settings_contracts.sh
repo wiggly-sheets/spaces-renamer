@@ -153,6 +153,8 @@ assert_fixed "automatic injection has a cooldown" \
   'automaticInjectionCooldown' "$INJECTION_MANAGER"
 assert_fixed "automatic injection stops after a failed attempt" \
   'automatic injection skipped (the last attempt failed)' "$INJECTION_MANAGER"
+assert_fixed "automatic injection waits for setup to be complete" \
+  'automatic injection skipped (setup required)' "$INJECTION_MANAGER"
 
 # --- spaces-renamer/spacesRenamer.m --------------------------------------------
 

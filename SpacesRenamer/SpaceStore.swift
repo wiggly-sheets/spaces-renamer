@@ -149,6 +149,10 @@ final class SpaceStore {
       )
     }
 
+    // The read succeeded; clear any previous failure even when this copy does not
+    // publish into the live dock domain.
+    errorMessage = nil
+
     // Live preference-domain layout for the injected Dock bundle. Only write
     // when the value changed to avoid cfprefsd write churn on every refresh.
     guard publishesToDockDomain else { return }
@@ -157,7 +161,6 @@ final class SpaceStore {
     if previousMonitors == nil || !NSArray(array: monitors).isEqual(previousMonitors) {
       dockDefaults?.set(monitors, forKey: "SpacesRenamerMonitors")
     }
-    errorMessage = nil
   }
 
   /// The text shown in the menu bar label for the current Space (empty when

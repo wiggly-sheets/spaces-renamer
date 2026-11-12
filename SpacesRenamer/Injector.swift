@@ -138,7 +138,9 @@ struct InjectorState {
       case "runtime_root": runtimeRoot = value
       case "runtime_installed": runtimeInstalled = value == "on"
       case "runtime_daemon": runtimeDaemon = value == "up"
-      case "runtime_hooked": runtimeHooked = value == "on"
+      // The launchservicesd mapping list is only readable as root; the script reports
+      // "unknown" rather than a false "off" when it cannot inspect the host.
+      case "runtime_hooked": runtimeHooked = value == "unknown" ? nil : (value == "on")
       case "runtime_bundle": runtimeBundle = value == "on"
       case "runtime_service": runtimeService = value
       case "active": active = Active(rawValue: value) ?? .none
@@ -344,7 +346,9 @@ enum Injector {
   static var mipRuntimeEmbedded: Bool {
     guard let root = Bundle.main.resourceURL?.appendingPathComponent("mip") else { return false }
     let manager = FileManager.default
-    return ["injectd", "loader.dylib", "inject"].allSatisfy {
+    // The launchservicesd injector is part of the payload; without it MIP installs but the
+    // host never receives the loader.
+    return ["injectd", "loader.dylib", "lsdinjector.dylib", "inject"].allSatisfy {
       manager.fileExists(atPath: root.appendingPathComponent($0).path)
     }
   }
@@ -361,7 +365,14 @@ enum Injector {
 /// `com.apple.WindowManager` on macOS 27+, `com.apple.dock` on macOS 26.
 struct PluginMarker {
   static let key = "SpacesRenamerPlugin"
-  static let hostDomains = ["com.apple.WindowManager", "com.apple.dock"]
+
+  /// The domain of the process that draws the Spaces bar on this macOS release. Dock keeps
+  /// running on macOS 27, so its marker cannot prove the WindowManager hook is loaded.
+  static var hostDomain: String {
+    ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+      ? "com.apple.WindowManager"
+      : "com.apple.dock"
+  }
 
   let version: String
   let build: String
@@ -376,12 +387,30 @@ struct PluginMarker {
     return last.prefix(1).uppercased() + last.dropFirst()
   }
 
-  /// The live entry across both host domains, else the most recently loaded (stale) one, else nil.
+  /// The marker the current release's host wrote, live or stale. Nil when that host never
+  /// loaded the hook, even if the other release's host still carries a marker.
   static func current() -> PluginMarker? {
-    let markers = hostDomains.compactMap { domain in
-      UserDefaults(suiteName: domain)?.dictionary(forKey: key).flatMap(PluginMarker.init(raw:))
-    }
-    return markers.first(where: \.isLive) ?? markers.max { $0.loadedAt < $1.loadedAt }
+    UserDefaults(suiteName: hostDomain)?
+      .dictionary(forKey: key)
+      .flatMap(PluginMarker.init(raw:))
+  }
+
+  /// Whether this marker comes from the same build as the app. Development builds carry a
+  /// `-dirty`/`-N-g<hash>` suffix and are never treated as stale. A live marker from another
+  /// release means the host is still running an old payload (for example after an app update),
+  /// so the app must inject again instead of reporting the old hook as current.
+  func isCurrent(forAppVersion appVersion: String?) -> Bool {
+    Self.versionMatches(markerVersion: version, appVersion: appVersion)
+  }
+
+  /// Pure comparison behind `isCurrent(forAppVersion:)`; exposed for tests.
+  static func versionMatches(markerVersion: String, appVersion: String?) -> Bool {
+    guard
+      let appVersion,
+      !appVersion.contains("-"),
+      !markerVersion.contains("-")
+    else { return true }
+    return markerVersion == appVersion
   }
 
   private init?(raw: [String: Any]) {
@@ -409,6 +438,9 @@ final class ActivationModel {
   /// The plugin's own report that it is loaded in the running host, independent of which injector
   /// (if any) this app manages. This is the ground truth for "renaming is on".
   private(set) var pluginIsLive = false
+  /// Whether the live plugin reports this app's version. A host that survived an app update
+  /// keeps running the old payload until it is injected again.
+  private(set) var pluginIsCurrent = false
   /// The output of the last injector command, successful or not. Kept so the UI
   /// can show why an activation failed instead of only "Renaming off".
   private(set) var lastOutput: String?
@@ -420,10 +452,11 @@ final class ActivationModel {
 
   var isEmbedded: Bool { Injector.isEmbedded }
 
-  /// Renaming is active only when the plugin itself reports it is loaded into the running host.
-  /// Injector-side artifacts (a configured LaunchAgent env var or a MIP bundle directory) do not
-  /// prove the dylib ever loaded — the plugin handshake is the ground truth.
-  var isActive: Bool { pluginIsLive }
+  /// Renaming is active only when the plugin itself reports it is loaded into the running host
+  /// at this app's version. Injector-side artifacts (a configured LaunchAgent env var or a MIP
+  /// bundle directory) do not prove the dylib ever loaded — the plugin handshake is the ground
+  /// truth.
+  var isActive: Bool { pluginIsLive && pluginIsCurrent }
 
   func refresh(completion: (() -> Void)? = nil) {
     Task { await reload(); completion?() }
@@ -480,18 +513,31 @@ final class ActivationModel {
     }
   }
 
-  /// Polls the plugin handshake until the host reports it, or 15 s pass.
+  /// The app's own version, compared against the plugin marker to detect a payload from a
+  /// previous release still running in a host that survived an update.
+  static var appVersion: String? {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+  }
+
+  /// Polls the plugin handshake until the host reports the current payload, or 15 s pass.
   private func waitForPluginLoad() async -> Bool {
-    await Task.detached(priority: .userInitiated) { () -> Bool in
+    let appVersion = Self.appVersion
+    return await Task.detached(priority: .userInitiated) { () -> Bool in
       for _ in 0..<30 {
-        if PluginMarker.current()?.isLive == true { return true }
+        if let marker = PluginMarker.current(),
+           marker.isLive,
+           marker.isCurrent(forAppVersion: appVersion) {
+          return true
+        }
         try? await Task.sleep(for: .milliseconds(500))
       }
-      return PluginMarker.current()?.isLive == true
+      guard let marker = PluginMarker.current() else { return false }
+      return marker.isLive && marker.isCurrent(forAppVersion: appVersion)
     }.value
   }
 
   private func reload() async {
+    let appVersion = Self.appVersion
     let snapshot = await Task.detached(priority: .userInitiated) {
       let status: InjectorState
       do {
@@ -502,12 +548,18 @@ final class ActivationModel {
         fallback.readError = error.localizedDescription
         status = fallback
       }
-      return (status: status, live: PluginMarker.current()?.isLive ?? false)
+      let marker = PluginMarker.current()
+      return (
+        status: status,
+        live: marker?.isLive ?? false,
+        current: marker?.isCurrent(forAppVersion: appVersion) ?? false
+      )
     }.value
     state = snapshot.status
     pluginIsLive = snapshot.live
+    pluginIsCurrent = snapshot.current
     hasLoaded = true
-    // A live plugin outranks an earlier failure: the hook did load.
-    if snapshot.live { errorMessage = nil }
+    // A live, current plugin outranks an earlier failure: the hook did load.
+    if snapshot.live, snapshot.current { errorMessage = nil }
   }
 }

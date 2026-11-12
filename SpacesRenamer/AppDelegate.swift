@@ -478,11 +478,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences.setLoginItemEnabled(true)
         showLaunchAtLoginErrorIfNeeded()
       }
-      injection.refresh()
-      if let warning = injection.prerequisitesWarning {
-        showInjectionSetupRequiredAlert(warning)
-      } else if !injection.isActive {
-        injection.injectNow()
+      // The status and prerequisite reads are asynchronous. Wait for both, otherwise the
+      // warning is still nil here and the app injects before the setup check has run.
+      injection.refresh { [weak self] in
+        guard let self else { return }
+        if let warning = self.injection.prerequisitesWarning {
+          self.showInjectionSetupRequiredAlert(warning)
+        } else if !self.injection.isActive {
+          self.injection.injectNow()
+        }
       }
     }
   }

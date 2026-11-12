@@ -93,8 +93,26 @@ static void testKVOTracksDockLabelAndForwardsUnknownContexts(void) {
           @"unknown KVO contexts should be forwarded to Dock's implementation");
 }
 
+// The dylib is injected into every process, including apps that are not the Spaces-bar host.
+// Only the host a macOS release actually draws the Spaces bar in may publish status or rename.
+static void testHostDetectionFollowsTheRelease() {
+  require(isSpacesBarHostBundle(@"com.apple.dock", 26),
+          @"macOS 26 should accept Dock as the Spaces-bar host");
+  require(!isSpacesBarHostBundle(@"com.apple.WindowManager", 26),
+          @"macOS 26 should not accept WindowManager as the Spaces-bar host");
+  require(isSpacesBarHostBundle(@"com.apple.WindowManager", 27),
+          @"macOS 27 should accept WindowManager as the Spaces-bar host");
+  require(!isSpacesBarHostBundle(@"com.apple.dock", 27),
+          @"macOS 27 should not accept Dock as the Spaces-bar host");
+  require(!isSpacesBarHostBundle(@"com.example.other", 26),
+          @"an unrelated bundle identifier is never the Spaces-bar host");
+  require(!isSpacesBarHostBundle(nil, 27),
+          @"a process with no bundle identifier is never the Spaces-bar host");
+}
+
 int main(void) {
   @autoreleasepool {
+    testHostDetectionFollowsTheRelease();
     testRemovingNameRestoresDefaultLabel();
     testKVOTracksDockLabelAndForwardsUnknownContexts();
     NSLog(@"PASS: Dock hook safety regressions");

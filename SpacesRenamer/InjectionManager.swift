@@ -124,16 +124,21 @@ final class InjectionManager {
     observers.removeAll()
   }
 
-  func refresh(injectIfEnabled: Bool = false) {
-    updatePrerequisitesWarning()
+  func refresh(injectIfEnabled: Bool = false, completion: (@MainActor () -> Void)? = nil) {
     recomputeState(snapshot: activationSnapshot())
-    // Decide only after the fresh status lands: activate()'s reload is async, so
-    // a synchronous !isActive check here would see stale pre-reload state and
-    // re-inject at launch even when the plugin is already live.
-    activation.refresh { [weak self] in
+    // The prerequisite probes run subprocesses off the main actor. Decide only after
+    // both they and the fresh status land: a synchronous check right after refresh()
+    // sees stale prerequisites and stale isActive, which made the first-launch consent
+    // flow inject even when setup was incomplete and re-inject when the plugin was live.
+    updatePrerequisitesWarning { [weak self] in
       guard let self else { return }
-      if injectIfEnabled, preferences?.automaticInjectionEnabled == true, !isActive {
-        self.injectAutomatically()
+      self.recomputeState(snapshot: self.activationSnapshot())
+      self.activation.refresh { [weak self] in
+        guard let self else { return }
+        if injectIfEnabled, self.preferences?.automaticInjectionEnabled == true, !self.isActive {
+          self.injectAutomatically()
+        }
+        completion?()
       }
     }
   }
@@ -144,6 +149,7 @@ final class InjectionManager {
       hasLoaded: activation.hasLoaded,
       isBusy: activation.isBusy,
       pluginIsLive: activation.pluginIsLive,
+      pluginIsCurrent: activation.pluginIsCurrent,
       errorMessage: activation.errorMessage
     )
   }
@@ -184,6 +190,10 @@ final class InjectionManager {
       Self.log.notice("inject: automatic injection skipped (the last attempt failed)")
       return
     }
+    if prerequisitesWarning != nil {
+      Self.log.notice("inject: automatic injection skipped (setup required)")
+      return
+    }
     automaticInjectionScheduled = true
     Task { @MainActor [weak self] in
       try? await Task.sleep(for: .seconds(10))
@@ -205,14 +215,26 @@ final class InjectionManager {
       Self.log.notice("inject: automatic injection skipped (the last attempt failed)")
       return
     }
+    if prerequisitesWarning != nil {
+      Self.log.notice("inject: automatic injection skipped (setup required)")
+      return
+    }
     // The host may still be loading the bundle: read the handshake instead of
-    // trusting the cached flag.
-    if PluginMarker.current()?.isLive == true {
-      Self.log.notice("inject: automatic injection skipped (plugin is live)")
+    // trusting the cached flag. A live marker from a previous app version is not
+    // current, so it must not suppress the reinjection that restages the payload.
+    if livePluginIsCurrent {
+      Self.log.notice("inject: automatic injection skipped (plugin is live and current)")
       return
     }
     lastAutomaticInjection = Date()
     injectNow()
+  }
+
+  /// True when the running host reports this build's payload, not a stale one from before
+  /// an app update.
+  private var livePluginIsCurrent: Bool {
+    guard let marker = PluginMarker.current(), marker.isLive else { return false }
+    return marker.isCurrent(forAppVersion: ActivationModel.appVersion)
   }
 
   private func resolvedBackend() -> InjectorBackend {
@@ -226,6 +248,7 @@ final class InjectionManager {
     let hasLoaded: Bool
     let isBusy: Bool
     let pluginIsLive: Bool
+    let pluginIsCurrent: Bool
     let errorMessage: String?
   }
 
@@ -240,6 +263,7 @@ final class InjectionManager {
       hasLoaded: activation.hasLoaded,
       isBusy: activation.isBusy,
       pluginIsLive: activation.pluginIsLive,
+      pluginIsCurrent: activation.pluginIsCurrent,
       errorMessage: activation.errorMessage
     )
     recomputeState(snapshot: snapshot)
@@ -248,6 +272,7 @@ final class InjectionManager {
       _ = activation.hasLoaded
       _ = activation.isBusy
       _ = activation.pluginIsLive
+      _ = activation.pluginIsCurrent
       _ = activation.errorMessage
       _ = activation.completedAttempts
     } onChange: { [weak self] in
@@ -299,7 +324,11 @@ final class InjectionManager {
       return
     }
     if snapshot.pluginIsLive {
-      state = .active
+      // A host that survived an app update keeps running the previous payload. Reporting
+      // that as active hides the mismatch: names silently stop following the new build.
+      state = snapshot.pluginIsCurrent
+        ? .active
+        : .inactive("The running hook is from another version of Spaces Renamer. Re-activate to load this build's hook.")
       return
     }
     if snapshot.state.active != .none {
@@ -312,14 +341,16 @@ final class InjectionManager {
     state = snapshot.hasLoaded ? .inactive(nil) : .checking
   }
 
-  private func updatePrerequisitesWarning() {
-    Task.detached(priority: .userInitiated) { [weak self] in
+  private func updatePrerequisitesWarning(completion: @escaping @MainActor () -> Void) {
+    Task { @MainActor [weak self] in
+      let problems = await Task.detached(priority: .userInitiated) {
+        await Self.problemsFromSubprocesses()
+      }.value
       guard let self else { return }
-      let problems = await Self.problemsFromSubprocesses()
-      await MainActor.run { [weak self] in
-        guard let self else { return }
-        self.prerequisitesWarning = problems.isEmpty ? nil : problems.joined(separator: " ")
-      }
+      self.prerequisitesWarning = problems.isEmpty ? nil : problems.joined(separator: " ")
+      // The state depends on the warning, so refresh it as soon as the probes finish.
+      self.recomputeState(snapshot: self.activationSnapshot())
+      completion()
     }
   }
 

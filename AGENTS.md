@@ -285,8 +285,15 @@ com.apple.dock         SpacesRenamerMonitors  CGSCopyManagedDisplaySpaces array
 
 The app writes `SpacesRenamerNames`/`SpacesRenamerMonitors` into the
 `com.apple.dock` domain, which every possible host can read; the bundle
-publishes its status marker in its own host domain. Do not change these keys
-without updating both the Swift app and injected bundle together.
+publishes its status marker in its own host domain. "Own host domain" means the
+process that draws the Spaces bar for the running macOS release:
+`com.apple.WindowManager` on macOS 27+, `com.apple.dock` up to macOS 26. The app
+reads only that domain, because Dock keeps running on macOS 27 and its marker
+cannot prove the WindowManager hook is loaded. The bundle also refuses to
+publish or rename unless it is running in that host; DYLD injection reaches
+every process, including command-line tools with no bundle identifier. Do not
+change these keys without updating both the Swift app and injected bundle
+together.
 
 ## Dock Hook Performance
 

@@ -75,6 +75,8 @@ assert_fixed "the system MIP root keeps its own name" \
   'SYSTEM_MIP_ROOT="/Library/Apple/System/Library/Frameworks/mip"' "$INJECTOR"
 assert_pass "the plain MIP_ROOT variable is gone" \
   bash -c "! grep -q -e '^MIP_ROOT=' '$INJECTOR'"
+assert_fixed "dyld activation restages a changed payload" \
+  'cmp -s "$dylib" "$DYLIB_STORE"' "$INJECTOR"
 
 # --- mip on installs into the private root ------------------------------------
 
@@ -164,6 +166,13 @@ assert_pass "mip-runtime status reports the private service name" \
   grep -q '^runtime_service=com.wiggly-sheets.spaces-renamer.injectd$' <<<"$runtime_out"
 assert_eq "mip-runtime status runs without root" "0" "${runtime_rc:-0}"
 
+# launchservicesd is root-owned, so an unprivileged read cannot inspect its mappings. The
+# status must say "unknown" instead of claiming the hook is missing.
+if [ "$(id -u)" -ne 0 ]; then
+  assert_eq "unprivileged status does not misreport the root-owned hook" \
+    "runtime_hooked=unknown" "$(grep '^runtime_hooked=' <<<"$status_out")"
+fi
+
 # --- the runtime travels with the app -------------------------------------------
 
 assert_fixed "the embed script copies the runtime" \
@@ -224,6 +233,8 @@ assert_pass "the embed script warns about the missing runtime" \
 
 # --- the Makefile ---------------------------------------------------------------
 
+assert_fixed "the plugin reports the same version as the app" \
+  "'MARKETING_VERSION=\$(VERSION)'" "$MAKEFILE"
 assert_fixed "the Makefile has a mip target" 'mip:' "$MAKEFILE"
 assert_fixed "the mip target needs gobjcopy" 'gobjcopy' "$MAKEFILE"
 assert_fixed "the mip target points at binutils" 'brew install binutils' "$MAKEFILE"

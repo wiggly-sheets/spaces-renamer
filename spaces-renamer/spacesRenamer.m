@@ -62,9 +62,15 @@ static id readPreference(NSString *key, NSString *domain) {
 // "installed but never injected" from "injected but the layer tree changed again".
 static void writePluginStatus(BOOL hookFired) {
   @autoreleasepool {
+    // A process with no bundle identifier has no domain to write to. DYLD injects into
+    // command-line tools too, so this can happen for real.
+    NSString *domain = statusDomain();
+    if (domain.length == 0) {
+      return;
+    }
     NSMutableDictionary *status = [NSMutableDictionary dictionary];
     if (hookFired) {
-      id previous = readPreference(kStatusKey, statusDomain());
+      id previous = readPreference(kStatusKey, domain);
       if ([previous isKindOfClass:[NSDictionary class]]) {
         [status addEntriesFromDictionary:previous];
       }
@@ -76,28 +82,62 @@ static void writePluginStatus(BOOL hookFired) {
       status[@"HostBundleID"] = [NSBundle mainBundle].bundleIdentifier ?: @"";
       status[@"LoadedAt"] = [NSDate date];
     }
-    CFPreferencesSetAppValue((CFStringRef)kStatusKey, (CFPropertyListRef)status, (CFStringRef)statusDomain());
-    CFPreferencesAppSynchronize((CFStringRef)statusDomain());
+    CFPreferencesSetAppValue((CFStringRef)kStatusKey, (CFPropertyListRef)status, (CFStringRef)domain);
+    CFPreferencesAppSynchronize((CFStringRef)domain);
   }
 }
 
-// The hooks are only installed inside the process that draws the Spaces bar: Dock up to
-// macOS 26, WindowManager from macOS 27. Injection mechanisms such as DYLD_INSERT_LIBRARIES
-// can land the dylib in unrelated processes, which must not overwrite the status marker.
-// The hook test opts in through the domain override.
+// The Spaces bar host for a macOS release: Dock up to macOS 26, WindowManager from macOS 27.
+// Both host processes keep running on macOS 27, so accepting either one would let the Dock
+// copy publish a live-looking marker while WindowManager never loaded the hook.
+static BOOL isSpacesBarHostBundle(NSString *bundleIdentifier, NSInteger majorVersion) {
+  if (bundleIdentifier == nil) {
+    return NO;
+  }
+  NSString *expected = majorVersion >= 27 ? @"com.apple.WindowManager" : @"com.apple.dock";
+  return [bundleIdentifier isEqualToString:expected];
+}
+
+static NSInteger hostMajorVersion(void) {
+  return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+}
+
+// Injection mechanisms such as DYLD_INSERT_LIBRARIES land this dylib in every process the user
+// launches, including command-line tools with no bundle identifier. The swizzles themselves are
+// installed at class load (the target's ZKSwizzleInterface style), so every hook path checks
+// this before doing any work. The hook test opts in through the domain override.
+static BOOL isSpacesBarHost(void) {
+  static BOOL host;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    host = testDomain() != nil ||
+      isSpacesBarHostBundle([NSBundle mainBundle].bundleIdentifier, hostMajorVersion());
+  });
+  return host;
+}
+
+// The legacy Dock layer tree exists only up to macOS 26. macOS 27 draws the Spaces bar in
+// WindowManager with named SpacesBar/PreviewLabel layers, so the old path must stay off there:
+// otherwise it would inspect every display-width layer in WindowManager and could publish a
+// "hook fired" marker without renaming anything.
+static BOOL usesLegacyDockPath(void) {
+  static BOOL legacy;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    legacy = isSpacesBarHost() && hostMajorVersion() < 27;
+  });
+  return legacy;
+}
+
 #ifndef SPACES_RENAMER_TESTING
 __attribute__((constructor))
 #endif
 static void spacesRenamerDidLoad(void) {
   @autoreleasepool {
-    NSString *host = [NSBundle mainBundle].bundleIdentifier;
-    if (![host isEqualToString:@"com.apple.dock"] &&
-        ![host isEqualToString:@"com.apple.WindowManager"] &&
-        !testDomain()) {
+    if (!isSpacesBarHost()) {
       return; // loaded into some other process (DYLD injects everywhere) — no-op
     }
-    // Swizzles install at class load (the target's ZKSwizzleInterface style); the status
-    // marker is the only constructor work, gated to real hosts above.
+    // The status marker is the only constructor work, gated to the release's real host.
     writePluginStatus(NO);
   }
 }
@@ -682,6 +722,9 @@ static NSDictionary *spaceForDesktopNumber(NSArray<Monitor *> *names, Monitor *m
 // display context is not attached yet, so the caller should try again on a later turn rather
 // than leave WindowManager's "Desktop N" showing.
 static BOOL applySpacesBarLabel(CATextLayer *label) {
+  if (!isSpacesBarHost()) {
+    return YES;  // another process's text layer; never apply the hook there
+  }
   CALayer *container = label.superlayer.superlayer;
   if (![container.name isEqualToString:kSpacesBarContainerLayerName]) {
     return NO;  // label not yet attached to its per-space container
@@ -772,7 +815,9 @@ ZKSwizzleInterface(_SRCALayer, CALayer, CALayer);
 @implementation _SRCALayer
 - (void)setFrame:(CGRect)arg1 {
   // Use a stable geometry/parent prefilter because Mission Control layers vary by macOS release.
-  if (arg1.origin.x == 0 && self.superlayer.class == [CALayer class]) {
+  // The legacy path only exists on Dock up to macOS 26; skip it entirely elsewhere so a foreign
+  // process never pays for the CoreGraphics display probe or publishes a false handshake.
+  if (usesLegacyDockPath() && arg1.origin.x == 0 && self.superlayer.class == [CALayer class]) {
     [self sre_applySpaceNamesForFrame:arg1];
   }
 

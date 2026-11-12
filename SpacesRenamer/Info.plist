@@ -35,6 +35,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Spaces Renamer uses System Events to restart your Mac after you approve adding the arm64e boot argument.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2018 Alex Beals. All rights reserved.</string>
 	<key>NSPrincipalClass</key>

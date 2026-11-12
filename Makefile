@@ -150,7 +150,12 @@ app: bundle man
 	./scripts/embed-injection.sh "$(APP)"
 
 plugin:
-	$(XCODEBUILD) -scheme spaces-renamer 'ARCHS=arm64e' 'SPACES_RENAMER_BUILD_NUMBER=$(BUILD)' build
+	# MARKETING_VERSION is a project build setting, not a second source of the
+	# version: the payload must report the same version as the app so the plugin
+	# handshake can detect a host still running a previous release's hook.
+	$(XCODEBUILD) -scheme spaces-renamer 'ARCHS=arm64e' \
+		'MARKETING_VERSION=$(VERSION)' \
+		'SPACES_RENAMER_BUILD_NUMBER=$(BUILD)' build
 
 package-injection: plugin
 	# The plugin builds arm64e only, so the built dylib is already the slice

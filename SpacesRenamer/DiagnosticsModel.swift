@@ -202,7 +202,12 @@ final class DiagnosticsModel {
     }
     check.finding = state.runtimeSummary
     if state.runtimeInstalled == true {
-      if state.runtimeDaemon == true {
+      if state.runtimeDaemon == true, state.runtimeHooked == false {
+        // An elevated status read can see launchservicesd; without the hook no process
+        // receives the loader and the bundle is never loaded.
+        check.status = .fail
+        check.remedy = "The runtime is running, but launchservicesd has no hook. Activate the injection again to repair it."
+      } else if state.runtimeDaemon == true {
         check.status = .pass
       } else if state.runtimeDaemon == false {
         check.status = .fail
@@ -268,6 +273,13 @@ final class DiagnosticsModel {
       return check
     }
     if marker.isLive {
+      let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+      if !marker.isCurrent(forAppVersion: appVersion) {
+        check.status = .fail
+        check.finding = "stale: \(marker.hostName) is running version \(marker.version), but this app is \(appVersion ?? "unknown")"
+        check.remedy = activationRemedy
+        return check
+      }
       check.status = .pass
       check.finding = "active in \(marker.hostName) (pid \(marker.hostPID), \(marker.hostBundleID))"
     } else {

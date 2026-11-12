@@ -11,6 +11,11 @@
 ### Fixed
 
 - The Injection settings page no longer stretches the Settings window when the Details section is expanded: the details now scroll inside a bounded box.
+- The injected hook now runs only in the process that draws the Spaces bar for the running macOS release (Dock up to macOS 26, WindowManager from macOS 27). DYLD injection reaches every process the user launches, so the old check let unrelated apps run the legacy Dock layer path and even write a plugin marker into their own preferences. On macOS 27 the legacy path is disabled entirely; before, it scanned display-width layers in WindowManager without renaming anything.
+- The plugin handshake reads only the current release's host domain, and a live marker from another app version is treated as stale. Dock keeps running on macOS 27, so its marker could previously report the hook as active when WindowManager had never loaded it; an update now restages the payload instead of leaving the previous release's hook in place.
+- The injected payload reports the same version as the app: the `plugin` target now passes `MARKETING_VERSION`, which was stuck at the project default and made the plugin version (and any staleness check) meaningless.
+- First-launch injection consent now waits for the asynchronous setup check, so a missing boot argument or SIP configuration shows the setup notice instead of starting elevation immediately.
+- Injection runtime status reports the launchservicesd hook as unknown instead of off when the app cannot read the root-owned process, and a staging build clears a stale Spaces error.
 
 ## 1.1.1 (2026-10-19)
 

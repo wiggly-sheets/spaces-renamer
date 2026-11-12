@@ -101,6 +101,52 @@ final class InjectionRuntimeTests: XCTestCase {
     XCTAssertEqual(state.active, .mip)
   }
 
+  func testUnreadableHookStateIsUnknownNotOff() {
+    // launchservicesd runs as root; an unprivileged status read cannot inspect its mappings.
+    let state = InjectorState(statusOutput: """
+    runtime_installed=on
+    runtime_daemon=up
+    runtime_hooked=unknown
+    """)
+
+    XCTAssertNil(state.runtimeHooked)
+    XCTAssertTrue(state.runtimeSummary.contains("host hook state unknown"))
+  }
+
+  func testHookStateParsesBothDecidedValues() {
+    XCTAssertEqual(
+      InjectorState(statusOutput: "runtime_hooked=on\n").runtimeHooked,
+      true
+    )
+    XCTAssertEqual(
+      InjectorState(statusOutput: "runtime_hooked=off\n").runtimeHooked,
+      false
+    )
+  }
+
+  func testAPluginMarkerFromAnotherReleaseIsNotCurrent() {
+    XCTAssertFalse(
+      PluginMarker.versionMatches(markerVersion: "1.0.1", appVersion: "1.2.3")
+    )
+    XCTAssertTrue(
+      PluginMarker.versionMatches(markerVersion: "1.2.3", appVersion: "1.2.3")
+    )
+  }
+
+  func testDevelopmentBuildVersionsAreNeverStale() {
+    // Local builds stamp a git-describe suffix onto the app; comparing it to the
+    // payload's marketing version would force a reinjection on every launch.
+    XCTAssertTrue(
+      PluginMarker.versionMatches(markerVersion: "1.0.1", appVersion: "1.1.1-7-g1b77d6b")
+    )
+    XCTAssertTrue(
+      PluginMarker.versionMatches(markerVersion: "1.1.1-dirty", appVersion: "1.1.1")
+    )
+    XCTAssertTrue(
+      PluginMarker.versionMatches(markerVersion: "1.0.1", appVersion: nil)
+    )
+  }
+
   func testPreferredBackendUsesMIPWhenThePrivateRuntimeIsEmbedded() {
     XCTAssertEqual(InjectorBackend.preferred(runtimeEmbedded: true, systemMIPAvailable: false), .mip)
   }
