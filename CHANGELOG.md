@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- The app now ships a layered Icon Composer icon: macOS 26 and 27 render the native Liquid Glass icon in light, dark, and tinted appearances, while `actool` still emits the legacy `.icns` for macOS 14 and 15.
+
 ### Changed
 
 - The build follows the shared Makefile vocabulary of the estate: `make` prints the list of the targets, and `build`, `test`, `app`, `dmg`, `release-artifacts`, `release VERSION=x.y.z` and `clean` do the work. `make release` takes the version from the command line, refuses a dirty working tree, a version whose tag already exists and a bundle that reports another version, creates the annotated tag locally and prints the push command. It never pushes.
@@ -10,6 +14,7 @@
 
 ### Fixed
 
+- macOS 26 and 27 now draw the app with the native Liquid Glass design. The build stamps the macOS 26 SDK floor into `LC_BUILD_VERSION` instead of the 14.0 deployment target, which previously made macOS select the legacy appearance even though the app compiled against the current SDK. Glass surfaces also batch through the native effect container and use the system interaction response on macOS 26+.
 - The Injection settings page no longer stretches the Settings window when the Details section is expanded: the details now scroll inside a bounded box.
 - The injected hook now runs only in the process that draws the Spaces bar for the running macOS release (Dock up to macOS 26, WindowManager from macOS 27). DYLD injection reaches every process the user launches, so the old check let unrelated apps run the legacy Dock layer path and even write a plugin marker into their own preferences. On macOS 27 the legacy path is disabled entirely; before, it scanned display-width layers in WindowManager without renaming anything.
 - The plugin handshake reads only the current release's host domain, and a live marker from another app version is treated as stale. Dock keeps running on macOS 27, so its marker could previously report the hook as active when WindowManager had never loaded it; an update now restages the payload instead of leaving the previous release's hook in place.

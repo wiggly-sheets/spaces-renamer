@@ -104,6 +104,8 @@ test:
 	./scripts/tests/test_injector_runtime.sh
 	./scripts/tests/test_manpage.sh
 	./scripts/tests/test_settings_contracts.sh
+	./scripts/tests/test_sdk_stamp.sh
+	./scripts/tests/test_app_icon.sh
 	./scripts/tests/test_cli.sh
 	./scripts/tests/test_make_verify.sh
 	./scripts/tests/test_make_release.sh
@@ -134,9 +136,10 @@ app: bundle man
 	    -e 's/\$$(PRODUCT_NAME)/SpacesRenamer/' \
 	    -e 's/\$$(DEVELOPMENT_LANGUAGE)/English/' \
 	    SpacesRenamer/Info.plist > "$(APP)/Contents/Info.plist"
-	# The asset catalog ships an AppIcon (actool emits Assets.car + AppIcon.icns
-	# into Resources); record it so macOS picks the icon up.
-	xcrun actool SpacesRenamer/Assets.xcassets --compile "$(APP)/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 --app-icon AppIcon --output-partial-info-plist .build/AssetsPartial.plist
+	# The Icon Composer document ships the layered Liquid Glass icon; actool also
+	# emits the legacy .icns for macOS 14/15, so both files land in Resources.
+	# Record them so macOS picks the icon up on every supported release.
+	xcrun actool SpacesRenamer/AppIcon.icon --compile "$(APP)/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 --app-icon AppIcon --output-partial-info-plist .build/AssetsPartial.plist
 	/usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile AppIcon' -c 'Add :CFBundleIconName string AppIcon' "$(APP)/Contents/Info.plist"
 	printf 'APPL????' > "$(APP)/Contents/PkgInfo"
 	# Ad-hoc signature before embedding; embed-injection.sh re-signs at the end.
@@ -270,6 +273,17 @@ verify:
 	# One -verify_arch per invocation: the multi-arch form trips
 	# "lipo: -verify_arch requires exactly one input file" on this machine.
 	lipo "$(APP)/Contents/MacOS/SpacesRenamer" -verify_arch arm64
+	# macOS 26/27 read LC_BUILD_VERSION's SDK field to decide whether to draw
+	# Liquid Glass. A 14.0 stamp silently selects the legacy design.
+	@stamp="$$(otool -l "$(APP)/Contents/MacOS/SpacesRenamer" | awk '/LC_BUILD_VERSION/ { found = 1 } found && /^ *sdk / { print $$2; exit }')"; \
+	if [ -z "$$stamp" ]; then \
+		echo "error: the app binary carries no SDK stamp." >&2; exit 1; \
+	fi; \
+	if ! awk -v sdk="$$stamp" 'BEGIN { exit !(sdk + 0 >= 26.0) }'; then \
+		echo "error: the app is stamped with SDK $$stamp; Liquid Glass needs 26.0 or newer." >&2; \
+		exit 1; \
+	fi; \
+	echo "Liquid Glass SDK stamp: $$stamp"
 	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" -verify_arch arm64e
 	lipo injection/lib/spaces-renamer.dylib -verify_arch arm64e
 	# Embedded DYLD injector script + MIP payload presence checks.
@@ -294,6 +308,10 @@ verify:
 		test "$$(lipo -archs "$(APP)/Contents/Resources/mip/$$f")" = arm64e; \
 	done
 	test -f "$(APP)/Contents/Resources/man/man1/sr.1"
+	# The layered Liquid Glass icon and its legacy .icns fallback both ship.
+	test -f "$(APP)/Contents/Resources/Assets.car"
+	test -f "$(APP)/Contents/Resources/AppIcon.icns"
+	test "$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$(APP)/Contents/Info.plist")" = AppIcon
 	test -f "$(APP)/Contents/_CodeSignature/CodeResources"
 	codesign --verify --deep --strict --all-architectures "$(APP)"
 	# The legacy run.sh/dylinject layout must no longer be embedded.

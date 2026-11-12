@@ -153,7 +153,7 @@ private struct PopoverContent: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 10)
     .controlSize(.small)
-    .glassBackground(in: .rect(cornerRadius: 12))
+    .glassBackground(in: .rect(cornerRadius: 12), interactive: true)
   }
 
   private var injectionTint: Color {

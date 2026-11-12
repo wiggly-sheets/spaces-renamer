@@ -798,6 +798,7 @@ private struct SettingsPage<Content: View>: View {
         Text(subtitle).foregroundStyle(.secondary)
       }
       content
+        .glassEffectContainer()
       Spacer()
     }
     .padding(24)

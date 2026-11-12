@@ -58,7 +58,7 @@ struct RenamerView: View {
         .keyboardShortcut(",", modifiers: .command)
       }
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .glassBackground(in: .rect(cornerRadius: 12), interactive: true)
 
       if let error = spaces.errorMessage {
         VStack(spacing: 10) {
@@ -88,6 +88,7 @@ struct RenamerView: View {
                   SpaceCell(space: space)
                 }
               }
+              .glassEffectContainer()
             }
           }
         }

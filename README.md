@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="SpacesRenamer/Assets.xcassets/AppIcon.appiconset/app-icon-512.png" width="128" alt="Spaces Renamer app icon" />
+  <img src="docs/app-icon.png" width="128" alt="Spaces Renamer app icon" />
 
   <h1>Spaces Renamer</h1>
 

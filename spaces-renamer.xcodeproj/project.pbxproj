@@ -10,7 +10,6 @@
 		A80DDE2C1FBCE4D600794F8F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80DDE2B1FBCE4D600794F8F /* AppDelegate.swift */; };
 		A90000E10000000000000001 /* SpacesRenamerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000F10000000000000001 /* SpacesRenamerApp.swift */; };
 		A90000E20000000000000001 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000F20000000000000001 /* AppModel.swift */; };
-		A80DDE301FBCE4D600794F8F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A80DDE2F1FBCE4D600794F8F /* Assets.xcassets */; };
 		C398D84715BD8B0700543187 /* spacesRenamer.m in Sources */ = {isa = PBXBuildFile; fileRef = C398D84615BD8B0700543187 /* spacesRenamer.m */; };
 		FBAE21EE1CFCCA4F007E5A8E /* ZKSwizzle.m in Sources */ = {isa = PBXBuildFile; fileRef = FBAE21ED1CFCCA4F007E5A8E /* ZKSwizzle.m */; };
 		A90000010000000000000001 /* PreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000110000000000000001 /* PreferencesStore.swift */; };
@@ -40,7 +39,7 @@
 		A80DDE2B1FBCE4D600794F8F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A90000F10000000000000001 /* SpacesRenamerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesRenamerApp.swift; sourceTree = "<group>"; };
 		A90000F20000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		A80DDE2F1FBCE4D600794F8F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A80DDE2F1FBCE4D600794F8F /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		A80DDE341FBCE4D600794F8F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A80DDE351FBCE4D600794F8F /* SpacesRenamer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpacesRenamer.entitlements; sourceTree = "<group>"; };
 		A81F4EFA206C012500660338 /* SpacesRenamerBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SpacesRenamerBridge.h; sourceTree = "<group>"; };
@@ -142,7 +141,7 @@
 				C6AC5935265247D0B963872609E9A64B /* TOMLDecoder.swift */,
 				99585131D13B455BB5FD04943F16128 /* ConfigFile.swift */,
 				A81F4EFA206C012500660338 /* SpacesRenamerBridge.h */,
-				A80DDE2F1FBCE4D600794F8F /* Assets.xcassets */,
+				A80DDE2F1FBCE4D600794F8F /* AppIcon.icon */,
 				A80DDE341FBCE4D600794F8F /* Info.plist */,
 				A80DDE351FBCE4D600794F8F /* SpacesRenamer.entitlements */,
 			);
