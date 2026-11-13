@@ -38,7 +38,7 @@ permissions:
 jobs:
   build:
     name: Build and release
-    runs-on: macos-15
+    runs-on: macos-26
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
@@ -134,7 +134,7 @@ jobs:
     name: Homebrew tap test (arm64)
     needs: build
     if: ${{ !contains(github.ref_name, '-') }}
-    runs-on: macos-15
+    runs-on: macos-26
     # Non-gating: a tap failure must never roll back or block a release.
     continue-on-error: true
 
