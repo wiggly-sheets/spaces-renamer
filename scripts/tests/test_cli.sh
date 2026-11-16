@@ -41,33 +41,45 @@ esac
 MOCK_OPEN
 chmod 0755 "$TMP/bin/open"
 
-output="$({ PATH="$TMP/bin:$PATH" SR_TEST_OPEN_LOG="$TMP/open.log" "$ROOT/cli/sr" status; } 2>&1)" || true
-assert_eq "status waits for its request-specific response" '{"source":"fresh"}' "$output"
+# Both reply commands share one contract: open the endpoint with a
+# request-specific reply path and print exactly the reply the app wrote.
+check_reply_command() {
+  local endpoint="$1" log="$2" output opened path
+  read -r -a args <<<"$endpoint"
+  output="$({ PATH="$TMP/bin:$PATH" SR_TEST_OPEN_LOG="$log" "$ROOT/cli/sr" "${args[@]}"; } 2>&1)" || true
+  assert_eq "$endpoint waits for its request-specific response" '{"source":"fresh"}' "$output"
 
-opened_url="$(tail -n 1 "$TMP/open.log")"
-case "$opened_url" in
-  spacesrenamer://status\?reply=*)
+  path="${endpoint// /\/}"
+  opened="$(tail -n 1 "$log")"
+  if [[ "$opened" == spacesrenamer://$path\?reply=* ]]; then
     pass=$((pass + 1))
-    echo "ok - status sends a request-specific reply path"
-    ;;
-  *)
+    echo "ok - $endpoint sends a request-specific reply path"
+  else
     fail=$((fail + 1))
-    echo "FAIL - status sends a request-specific reply path"
-    ;;
-esac
+    echo "FAIL - $endpoint sends a request-specific reply path"
+    echo "  actual: $opened"
+  fi
+}
 
-profile_output="$({ PATH="$TMP/bin:$PATH" SR_TEST_OPEN_LOG="$TMP/profile.log" "$ROOT/cli/sr" profile list; } 2>&1)" || true
-assert_eq "profile list waits for its request-specific response" '{"source":"fresh"}' "$profile_output"
-case "$(tail -n 1 "$TMP/profile.log")" in
-  spacesrenamer://profile/list\?reply=*)
-    pass=$((pass + 1))
-    echo "ok - profile list sends a request-specific reply path"
-    ;;
-  *)
-    fail=$((fail + 1))
-    echo "FAIL - profile list sends a request-specific reply path"
-    ;;
-esac
+check_reply_command "status" "$TMP/open.log"
+check_reply_command "profile list" "$TMP/profile.log"
+
+for mode in manual applications yabaiLabels; do
+  naming_log="$TMP/naming-$mode.log"
+  naming_status=0
+  PATH="$TMP/bin:/bin" SR_TEST_OPEN_LOG="$naming_log" \
+    "$ROOT/cli/sr" naming "$mode" >/dev/null 2>&1 || naming_status=$?
+  assert_eq "naming opens the $mode deeplink" \
+    "spacesrenamer://naming/$mode" \
+    "$(test -f "$naming_log" && tail -n 1 "$naming_log" || true)"
+  assert_eq "naming accepts $mode" "0" "$naming_status"
+done
+
+invalid_log="$TMP/invalid.log"
+invalid_status=0
+PATH="$TMP/bin:/bin" SR_TEST_OPEN_LOG="$invalid_log" "$ROOT/cli/sr" naming solarium >/dev/null 2>&1 || invalid_status=$?
+assert_eq "naming rejects an unknown mode" "non-zero" "$([[ "$invalid_status" -ne 0 ]] && echo non-zero || echo zero)"
+assert_eq "naming rejects before opening a URL" "no" "$(test -f "$invalid_log" && echo yes || echo no)"
 
 name_url_log="$TMP/name.log"
 name_status=0

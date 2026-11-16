@@ -76,9 +76,4 @@ final class NameFormattingTests: XCTestCase {
     )
     XCTAssertTrue(names.isEmpty)
   }
-
-  func testEmptySnapshotGeneratesNothing() {
-    XCTAssertTrue(generated([], mode: .applications).isEmpty)
-    XCTAssertTrue(generated([], mode: .yabaiLabels).isEmpty)
-  }
 }

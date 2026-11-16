@@ -2,30 +2,44 @@ import XCTest
 @testable import SpacesRenamer
 
 final class InjectionRuntimeTests: XCTestCase {
-  func testStatusOutputParsesRuntimeKeys() {
+  func testStatusOutputParsesTheStatusContract() {
     let state = InjectorState(statusOutput: """
     host=WindowManager
+    dyld_agent=absent
+    dyld_env=unset
+    dyld=off
+    mip_installed=yes
+    mip_bundle=on
     mip_daemon=up
+    arm64e=on
+    active=mip
     runtime_root=/Library/SpacesRenamer/mip
     runtime_installed=on
     runtime_daemon=up
     runtime_hooked=on
     runtime_bundle=on
     runtime_service=com.wiggly-sheets.spaces-renamer.injectd
-    active=mip
     """)
 
+    XCTAssertEqual(state.host, "WindowManager")
+    XCTAssertTrue(state.mipInstalled)
+    XCTAssertTrue(state.mipBundleOn)
+    XCTAssertEqual(state.mipDaemon, true)
     XCTAssertEqual(state.runtimeRoot, "/Library/SpacesRenamer/mip")
     XCTAssertEqual(state.runtimeInstalled, true)
     XCTAssertEqual(state.runtimeDaemon, true)
     XCTAssertEqual(state.runtimeHooked, true)
     XCTAssertEqual(state.runtimeBundle, true)
     XCTAssertEqual(state.runtimeService, "com.wiggly-sheets.spaces-renamer.injectd")
-    XCTAssertEqual(state.mipDaemon, true)
+    XCTAssertEqual(state.active, .mip)
   }
 
   func testStatusOutputReportsRuntimeFlagsOff() {
     let state = InjectorState(statusOutput: """
+    host=Dock
+    mip_installed=no
+    mip_bundle=off
+    active=none
     runtime_root=/Library/Apple/System/Library/Frameworks/mip
     runtime_installed=off
     runtime_daemon=down
@@ -35,11 +49,15 @@ final class InjectionRuntimeTests: XCTestCase {
     mip_daemon=down
     """)
 
+    XCTAssertEqual(state.host, "Dock")
+    XCTAssertFalse(state.mipInstalled)
+    XCTAssertFalse(state.mipBundleOn)
     XCTAssertEqual(state.runtimeInstalled, false)
     XCTAssertEqual(state.runtimeDaemon, false)
     XCTAssertEqual(state.runtimeHooked, false)
     XCTAssertEqual(state.runtimeBundle, false)
     XCTAssertEqual(state.mipDaemon, false)
+    XCTAssertEqual(state.active, .none)
   }
 
   func testStatusOutputWithoutRuntimeKeysLeavesThemUnknown() {
@@ -49,6 +67,7 @@ final class InjectionRuntimeTests: XCTestCase {
     active=none
     """)
 
+    XCTAssertNil(state.mipDaemon)
     XCTAssertNil(state.runtimeRoot)
     XCTAssertNil(state.runtimeInstalled)
     XCTAssertNil(state.runtimeDaemon)
@@ -72,35 +91,6 @@ final class InjectionRuntimeTests: XCTestCase {
     )
   }
 
-  func testRealStatusOutputParsesTheRuntimeKeys() {
-    // The shape of `injector.sh status` on a machine with the private runtime.
-    let state = InjectorState(statusOutput: """
-    host=WindowManager
-    dyld_agent=absent
-    dyld_env=unset
-    dyld=off
-    mip_installed=yes
-    mip_bundle=on
-    mip_daemon=up
-    arm64e=on
-    active=mip
-    runtime_root=/Library/SpacesRenamer/mip
-    runtime_installed=on
-    runtime_daemon=up
-    runtime_hooked=off
-    runtime_bundle=on
-    runtime_service=com.wiggly-sheets.spaces-renamer.injectd
-    """)
-
-    XCTAssertEqual(state.runtimeRoot, "/Library/SpacesRenamer/mip")
-    XCTAssertEqual(state.runtimeInstalled, true)
-    XCTAssertEqual(state.runtimeDaemon, true)
-    XCTAssertEqual(state.runtimeHooked, false)
-    XCTAssertEqual(state.runtimeBundle, true)
-    XCTAssertEqual(state.runtimeService, "com.wiggly-sheets.spaces-renamer.injectd")
-    XCTAssertEqual(state.active, .mip)
-  }
-
   func testUnreadableHookStateIsUnknownNotOff() {
     // launchservicesd runs as root; an unprivileged status read cannot inspect its mappings.
     let state = InjectorState(statusOutput: """
@@ -111,17 +101,6 @@ final class InjectionRuntimeTests: XCTestCase {
 
     XCTAssertNil(state.runtimeHooked)
     XCTAssertTrue(state.runtimeSummary.contains("host hook state unknown"))
-  }
-
-  func testHookStateParsesBothDecidedValues() {
-    XCTAssertEqual(
-      InjectorState(statusOutput: "runtime_hooked=on\n").runtimeHooked,
-      true
-    )
-    XCTAssertEqual(
-      InjectorState(statusOutput: "runtime_hooked=off\n").runtimeHooked,
-      false
-    )
   }
 
   func testAPluginMarkerFromAnotherReleaseIsNotCurrent() {
@@ -147,15 +126,9 @@ final class InjectionRuntimeTests: XCTestCase {
     )
   }
 
-  func testPreferredBackendUsesMIPWhenThePrivateRuntimeIsEmbedded() {
+  func testPreferredBackendUsesMIPOnlyWhenARuntimeIsAvailable() {
     XCTAssertEqual(InjectorBackend.preferred(runtimeEmbedded: true, systemMIPAvailable: false), .mip)
-  }
-
-  func testPreferredBackendUsesMIPWhenSystemMIPIsInstalled() {
     XCTAssertEqual(InjectorBackend.preferred(runtimeEmbedded: false, systemMIPAvailable: true), .mip)
-  }
-
-  func testPreferredBackendFallsBackToDYLDWithoutAnyRuntime() {
     XCTAssertEqual(InjectorBackend.preferred(runtimeEmbedded: false, systemMIPAvailable: false), .dyld)
   }
 

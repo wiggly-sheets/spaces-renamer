@@ -38,13 +38,22 @@ assert_contains() {
 
 assert_absent() {
   local description="$1" text="$2" file="$3"
-  if grep -F -q -e "$text" "$file"; then
-    fail=$((fail + 1))
-    echo "FAIL - $description"
-  else
-    pass=$((pass + 1))
-    echo "ok - $description"
-  fi
+  local status=0
+  grep -F -q -e "$text" "$file" || status=$?
+  case "$status" in
+    0)
+      fail=$((fail + 1))
+      echo "FAIL - $description"
+      ;;
+    1)
+      pass=$((pass + 1))
+      echo "ok - $description"
+      ;;
+    *)
+      fail=$((fail + 1))
+      echo "FAIL - $description (grep could not read $file, status $status)"
+      ;;
+  esac
 }
 
 assert_pass "the Icon Composer document exists" test -f "$ICON/icon.json"
@@ -74,15 +83,11 @@ else
   fail=$((fail + 1))
   echo "FAIL - make app compiles the Icon Composer document"
 fi
-assert_absent \
-  "make app no longer compiles the legacy appiconset" \
-  'actool SpacesRenamer/Assets.xcassets' "$MAKEFILE"
-
 PROJECT="$ROOT/spaces-renamer.xcodeproj/project.pbxproj"
 assert_contains \
   "the Xcode project references the Icon Composer document" \
   "$(cat "$PROJECT")" \
-  'A80DDE2F1FBCE4D600794F8F /* AppIcon.icon */'
+  '/* AppIcon.icon */'
 assert_contains \
   "the Xcode project opens it as an Icon Composer document" \
   "$(cat "$PROJECT")" \

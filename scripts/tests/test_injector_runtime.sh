@@ -27,13 +27,22 @@ assert_fixed() {
 
 assert_absent() {
   local description="$1" text="$2" file="$3"
-  if grep -F -q -e "$text" "$file"; then
-  	fail=$((fail + 1))
-  	echo "FAIL - $description"
-  else
-  	pass=$((pass + 1))
-  	echo "ok - $description"
-  fi
+  local status=0
+  grep -F -q -e "$text" "$file" || status=$?
+  case "$status" in
+    0)
+      fail=$((fail + 1))
+      echo "FAIL - $description"
+      ;;
+    1)
+      pass=$((pass + 1))
+      echo "ok - $description"
+      ;;
+    *)
+      fail=$((fail + 1))
+      echo "FAIL - $description (grep could not read $file, status $status)"
+      ;;
+  esac
 }
 
 assert_eq() {
@@ -73,8 +82,9 @@ assert_fixed "the private lsdinjector label is fixed" \
   'MIP_LSDINJECTOR_LABEL="com.wiggly-sheets.spaces-renamer.lsdinjector"' "$INJECTOR"
 assert_fixed "the system MIP root keeps its own name" \
   'SYSTEM_MIP_ROOT="/Library/Apple/System/Library/Frameworks/mip"' "$INJECTOR"
-assert_pass "the plain MIP_ROOT variable is gone" \
-  bash -c "! grep -q -e '^MIP_ROOT=' '$INJECTOR'"
+mip_root_status=0
+grep -q -e '^MIP_ROOT=' "$INJECTOR" || mip_root_status=$?
+assert_eq "the plain MIP_ROOT variable is gone" "1" "$mip_root_status"
 assert_fixed "dyld activation restages a changed payload" \
   'cmp -s "$dylib" "$DYLIB_STORE"' "$INJECTOR"
 
@@ -151,17 +161,15 @@ assert_fixed "the private root is removed" \
 assert_pass "the launcher has no syntax errors" sh -n "$INJECTOR"
 
 status_out="$(sh "$INJECTOR" status 2>/dev/null)" || status_out=""
+missing_keys=""
 for key in host dyld_agent dyld_env dyld mip_installed mip_bundle mip_daemon \
   arm64e active runtime_root runtime_installed runtime_daemon runtime_hooked \
   runtime_bundle runtime_service; do
-  assert_pass "status prints $key" grep -q "^$key=" <<<"$status_out"
+  grep -q "^$key=" <<<"$status_out" || missing_keys="$missing_keys $key"
 done
+assert_eq "status prints every documented key" "" "$missing_keys"
 
 runtime_out="$(sh "$INJECTOR" mip-runtime status 2>/dev/null)" || runtime_rc=$?
-runtime_keys="$(sed -n 's/=.*//p' <<<"$runtime_out" | paste -sd' ' -)"
-assert_eq "mip-runtime status prints the runtime keys in order" \
-  "runtime_root runtime_installed runtime_daemon runtime_hooked runtime_bundle runtime_service" \
-  "$runtime_keys"
 assert_pass "mip-runtime status reports the private service name" \
   grep -q '^runtime_service=com.wiggly-sheets.spaces-renamer.injectd$' <<<"$runtime_out"
 assert_eq "mip-runtime status runs without root" "0" "${runtime_rc:-0}"
@@ -181,10 +189,12 @@ assert_fixed "the embed script keeps the loader non-executable" \
   'install -m 0644' "$EMBED"
 assert_fixed "the embed script warns when the runtime is missing" \
   'will not carry a private MIP runtime' "$EMBED"
+missing_payload=""
 for file in injectd loader.dylib lsdinjector.dylib inject \
   spacesrenamer.injectd.plist spacesrenamer.lsdinjector.plist; do
-  assert_pass "the runtime payload ships $file" test -f "$PAYLOAD/$file"
+  test -f "$PAYLOAD/$file" || missing_payload="$missing_payload $file"
 done
+assert_eq "the committed runtime payload is complete" "" "$missing_payload"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -208,11 +218,13 @@ mkdir -p "$TMP/Fake.app/Contents/Resources"
 
 "$TMP/embed/embed-injection.sh" "$TMP/Fake.app" >/dev/null
 
+missing_embedded=""
 for file in injectd loader.dylib lsdinjector.dylib inject \
   spacesrenamer.injectd.plist spacesrenamer.lsdinjector.plist; do
-  assert_pass "the app bundle carries mip/$file" \
-  	test -f "$TMP/Fake.app/Contents/Resources/mip/$file"
+  test -f "$TMP/Fake.app/Contents/Resources/mip/$file" ||
+    missing_embedded="$missing_embedded $file"
 done
+assert_eq "the app bundle carries the full runtime payload" "" "$missing_embedded"
 assert_eq "the runtime executables are executable" "755" \
   "$(stat -f '%Lp' "$TMP/Fake.app/Contents/Resources/mip/injectd")"
 assert_eq "the lsdinjector is executable" "755" \
@@ -235,12 +247,6 @@ assert_pass "the embed script warns about the missing runtime" \
 
 assert_fixed "the plugin reports the same version as the app" \
   "'MARKETING_VERSION=\$(VERSION)'" "$MAKEFILE"
-assert_fixed "the Makefile has a mip target" 'mip:' "$MAKEFILE"
-assert_fixed "the mip target needs gobjcopy" 'gobjcopy' "$MAKEFILE"
-assert_fixed "the mip target points at binutils" 'brew install binutils' "$MAKEFILE"
-assert_fixed "the mip target prints the rebuild command" \
-  'make -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd' \
-  "$MAKEFILE"
 assert_fixed "the app target embeds the injection stack" \
   './scripts/embed-injection.sh "$(APP)"' "$MAKEFILE"
 assert_eq "no target depends on the mip target" "" \

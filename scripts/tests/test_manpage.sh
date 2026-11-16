@@ -26,10 +26,18 @@ assert_contains() {
 }
 
 assert_contains "renders sr(1) title" '^\.TH "SR" "1"'
-assert_contains "documents status" 'status'
-assert_contains "documents profile switching" 'profile switch'
-assert_contains "documents naming modes" 'yabaiLabels'
-assert_contains "documents Space naming" 'space'
+assert_contains "documents sr status" \
+	'\\fBsr\\fR \\fBstatus\\fR'
+assert_contains "documents sr profile switch" \
+	'\\fBsr\\fR \\fBprofile switch\\fR \\fIUUID\\fR'
+assert_contains "documents sr naming modes" \
+	'\\fBmanual\\fR, \\fBapplications\\fR, or'
+assert_contains "documents the yabaiLabels naming mode" \
+	'\\fByabaiLabels\\fR'
+assert_contains "documents sr space name" \
+	'\\fBsr\\fR \\fBspace\\fR \\fIUUID\\fR \\fBname\\fR \\fINAME\\fR'
+assert_contains "documents the request-specific reply" \
+	'request.*specific status reply'
 
 echo
 echo "$pass passed, $fail failed"

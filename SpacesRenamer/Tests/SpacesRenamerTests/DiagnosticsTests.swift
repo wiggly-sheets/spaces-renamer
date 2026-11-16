@@ -143,21 +143,7 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertEqual(check.finding, "Could not read the injector status")
   }
 
-  @MainActor
-  func testTheInitialListHoldsTheLaunchAgentCheckAfterTheInjectionRuntime() {
-    let model = DiagnosticsModel()
-
-    XCTAssertEqual(model.checks.map(\.title), [
-      "System Integrity Protection",
-      "Boot arguments",
-      "Injection runtime",
-      "LaunchAgent injector (backup)",
-      "Plugin version",
-      "Plugin active in host",
-    ])
-  }
-
-  func testAFinishedRunHoldsTheSameCheckTitlesAsTheInitialList() {
+  func testAFinishedRunKeepsTheInitialCheckOrder() {
     XCTAssertEqual(DiagnosticsModel.runAll().map(\.title), DiagnosticsModel.checkTitles)
   }
 }

@@ -75,8 +75,6 @@ assert_contains "the release runs the shared driver" \
   './scripts/release.sh "9.9.9"' "$release_recipe"
 
 driver="$(cat "$RELEASE_SCRIPT")"
-assert_contains "the release refuses a dirty working tree" "the working tree is dirty" "$driver"
-assert_contains "the release refuses a tag that exists" "already exists" "$driver"
 assert_contains "the release verifies the bundle" "make verify" "$driver"
 assert_contains "the release creates an annotated tag" 'git tag -a "v$VERSION"' "$driver"
 assert_contains "the release prints the push command" "git push origin \$branch" "$driver"
@@ -108,38 +106,44 @@ git -C "$REPO" add Makefile scripts CHANGELOG.md
 git -C "$REPO" -c user.email=release@example.com -c user.name=Release \
   commit -q -m "test fixture"
 
-out="$(cd "$REPO" && make release 2>&1 || true)"
-assert_contains "a release without a version is refused" "make release needs a version" "$out"
-if (cd "$REPO" && make release >/dev/null 2>&1); then
-  fail=$((fail + 1))
-  echo "FAIL - a release without a version should exit non-zero"
-else
-  pass=$((pass + 1))
-  echo "ok - a release without a version exits non-zero"
-fi
+assert_refused() {
+  local desc="$1" needle="$2" output="$3" status="$4"
+  if [[ "$status" -ne 0 ]] && printf '%s\n' "$output" | grep -Fq -- "$needle"; then
+    pass=$((pass + 1))
+    echo "ok - $desc"
+  else
+    fail=$((fail + 1))
+    echo "FAIL - $desc"
+    echo "  expected a non-zero exit and: $needle"
+    echo "  exit: $status"
+  fi
+}
+
+out="$(cd "$REPO" && make release 2>&1)" && rc=0 || rc=$?
+assert_refused "a release without a version is refused" \
+  "make release needs a version" "$out" "$rc"
 
 touch "$REPO/dirty.txt"
-out="$(cd "$REPO" && make release VERSION=9.9.9 2>&1 || true)"
-assert_contains "a release on a dirty tree is refused" "the working tree is dirty" "$out"
-if (cd "$REPO" && make release VERSION=9.9.9 >/dev/null 2>&1); then
-  fail=$((fail + 1))
-  echo "FAIL - a release on a dirty tree should exit non-zero"
-else
-  pass=$((pass + 1))
-  echo "ok - a release on a dirty tree exits non-zero"
-fi
+out="$(cd "$REPO" && make release VERSION=9.9.9 2>&1)" && rc=0 || rc=$?
+assert_refused "a release on a dirty tree is refused" \
+  "the working tree is dirty" "$out" "$rc"
 
 rm "$REPO/dirty.txt"
 git -C "$REPO" tag v9.9.9
-out="$(cd "$REPO" && make release VERSION=9.9.9 2>&1 || true)"
-assert_contains "a release with an existing tag is refused" "already exists" "$out"
-if (cd "$REPO" && make release VERSION=9.9.9 >/dev/null 2>&1); then
-  fail=$((fail + 1))
-  echo "FAIL - a release with an existing tag should exit non-zero"
-else
-  pass=$((pass + 1))
-  echo "ok - a release with an existing tag exits non-zero"
-fi
+out="$(cd "$REPO" && make release VERSION=9.9.9 2>&1)" && rc=0 || rc=$?
+assert_refused "a release with an existing tag is refused" \
+  "already exists" "$out" "$rc"
+
+# The release must run from the remote's default branch. Point origin/HEAD at
+# the fixture's current branch, then run from a feature branch.
+base_branch="$(git -C "$REPO" symbolic-ref --quiet --short HEAD)"
+git -C "$REPO" update-ref "refs/remotes/origin/$base_branch" HEAD
+git -C "$REPO" symbolic-ref "refs/remotes/origin/HEAD" \
+  "refs/remotes/origin/$base_branch"
+git -C "$REPO" checkout -q -b release-test
+out="$(cd "$REPO" && make release VERSION=9.9.8 2>&1)" && rc=0 || rc=$?
+assert_refused "a release from a non-default branch is refused" \
+  "the release must be cut from $base_branch" "$out" "$rc"
 
 echo
 echo "$pass passed, $fail failed"

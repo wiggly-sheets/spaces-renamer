@@ -89,7 +89,7 @@ final class SpaceStoreTests: XCTestCase {
     XCTAssertEqual(filter(windows), [100: ["B", "A", "C"]])
   }
 
-  func testCrossSpaceOrderingGroupsLowerSpaceFirst() {
+  func testWindowsAreGroupedByTheirManagedSpace() {
     let windows = [
       makeWindow(id: 5, app: "A", space: 1, x: 500),
       makeWindow(id: 6, app: "B", space: 2, x: 0),

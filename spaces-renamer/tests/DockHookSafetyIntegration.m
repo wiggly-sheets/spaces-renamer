@@ -86,6 +86,14 @@ static void testSetBoundsPublishesSpacesBarNames(void) {
   require([label.string isEqual:@"Code"],
           @"setBounds: on the Spaces bar should publish the custom Space name on PreviewLabel");
 
+  NSDictionary *marker = (NSDictionary *)CFPreferencesCopyAppValue(
+      CFSTR("SpacesRenamerPlugin"), (CFStringRef)testDomain());
+  require([marker isKindOfClass:[NSDictionary class]],
+          @"a successful hook pass should write the SpacesRenamerPlugin status marker");
+  require(marker[@"FirstHookAt"] != nil,
+          @"the status marker should record the first hook pass");
+  [marker release];
+
   // A second layout pass must not crash or invert the swizzle.
   [bar setBounds: NSMakeRect(0, 0, 1920, 1080)];
   require([label.string isEqual:@"Code"],

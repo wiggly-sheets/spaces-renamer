@@ -43,7 +43,7 @@ fi
 
 assert_contains \
   "the app keeps its macOS 14 deployment target" \
-  "$(tr -s '[:space:]' ' ' < "$PACKAGE")" \
+  "$manifest" \
   'platforms: [.macOS("14.0")]'
 
 echo
