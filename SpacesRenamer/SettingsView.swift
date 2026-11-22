@@ -34,8 +34,8 @@ struct SettingsView: View {
       List(SettingsSection.allCases, selection: $selection) { section in
         Label(section.rawValue, systemImage: section.icon)
       }
+      .listStyle(.sidebar)
       .navigationSplitViewColumnWidth(min: 180, ideal: 190)
-      .glassBackground(in: .rect(cornerRadius: 12))
     } detail: {
       Group {
         switch selection ?? .general {
@@ -52,8 +52,6 @@ struct SettingsView: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .padding(28)
-      .glassBackground(in: .rect(cornerRadius: 16))
     }
   }
 }
@@ -86,14 +84,14 @@ private struct InjectionSettingsView: View {
         }
       }
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       if let warning = injection.prerequisitesWarning {
         Label(warning, systemImage: "exclamationmark.triangle")
           .font(.callout)
           .foregroundStyle(.orange)
           .padding(12)
-          .glassBackground(in: .rect(cornerRadius: 10))
+          .settingsCard(cornerRadius: 10)
       }
 
       Divider()
@@ -105,10 +103,9 @@ private struct InjectionSettingsView: View {
             .foregroundStyle(.secondary)
             .help(Self.methodHelp)
         }
-
       }
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       HStack(spacing: 12) {
         Button {
@@ -147,7 +144,7 @@ private struct InjectionSettingsView: View {
         .help("Controlled in General. The app re-injects automatically when it is running.")
       }
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       DisclosureGroup("Details", isExpanded: $showsDetails) {
         ScrollView {
@@ -173,7 +170,7 @@ private struct InjectionSettingsView: View {
       }
       .font(.callout)
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
     }
   }
 
@@ -207,13 +204,13 @@ private struct SpaceSettingsView: View {
         }
       }
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       if let error = spaces.errorMessage {
         Label(error, systemImage: "exclamationmark.triangle")
           .foregroundStyle(.red)
           .padding(12)
-          .glassBackground(in: .rect(cornerRadius: 10))
+          .settingsCard(cornerRadius: 10)
       } else {
         ScrollView {
           VStack(alignment: .leading, spacing: 16) {
@@ -257,7 +254,7 @@ private struct GeneralSettingsView: View {
         set: { preferences.setShowMenuBarIcon($0) }
       ))
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       Text("If hidden, reopen Spaces Renamer from Applications to show Settings.")
         .font(.callout)
@@ -275,7 +272,7 @@ private struct GeneralSettingsView: View {
       .pickerStyle(.radioGroup)
       .disabled(!preferences.showMenuBarIcon)
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       Text("Show the Spaces Renamer symbol, the current name such as \"Code,\" or its number and name such as \"1. Code.\"")
         .font(.callout)
@@ -289,7 +286,7 @@ private struct GeneralSettingsView: View {
         set: { preferences.setShowSpaceChangeHUD($0) }
       ))
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       Text("Briefly show the current Space's name on every display when you switch Spaces.")
         .font(.callout)
@@ -303,7 +300,7 @@ private struct GeneralSettingsView: View {
         set: { preferences.setLoginItemEnabled($0) }
       ))
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       Divider()
 
@@ -327,13 +324,13 @@ private struct GeneralSettingsView: View {
         }
       }
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       if let error = preferences.lastError {
         Label(error, systemImage: "exclamationmark.triangle")
           .foregroundStyle(.red)
           .padding(12)
-          .glassBackground(in: .rect(cornerRadius: 10))
+          .settingsCard(cornerRadius: 10)
       }
     }
   }
@@ -362,7 +359,7 @@ private struct ProfileSettingsView: View {
         }
         .frame(width: 220)
         .frame(minHeight: 260)
-        .glassBackground(in: .rect(cornerRadius: 12))
+        .settingsCard(cornerRadius: 12)
 
         VStack(alignment: .leading, spacing: 14) {
           TextField("Profile name", text: $editedName)
@@ -399,7 +396,7 @@ private struct ProfileSettingsView: View {
           }
         }
         .padding(16)
-        .glassBackground(in: .rect(cornerRadius: 12))
+        .settingsCard(cornerRadius: 12)
       }
     }
     .onAppear {
@@ -435,7 +432,7 @@ private struct HotkeySettingsView: View {
         .frame(width: 220, height: 32)
       }
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       Button("Restore Default") {
         preferences.updateHotkey(HotkeyPreference())
@@ -614,7 +611,7 @@ private struct AutomaticNamingSettingsView: View {
       }
       .pickerStyle(.radioGroup)
       .padding(16)
-      .glassBackground(in: .rect(cornerRadius: 12))
+      .settingsCard(cornerRadius: 12)
 
       Text(modeExplanation)
         .font(.callout)
@@ -627,7 +624,7 @@ private struct AutomaticNamingSettingsView: View {
           set: { preferences.setShowDuplicateApplications($0) }
         ))
         .padding(16)
-        .glassBackground(in: .rect(cornerRadius: 12))
+        .settingsCard(cornerRadius: 12)
 
         Text("When enabled, two Safari windows appear as \"Safari · Safari.\" Off by default.")
           .font(.callout)
@@ -640,7 +637,7 @@ private struct AutomaticNamingSettingsView: View {
 
         YabaiStatusView()
           .padding(16)
-          .glassBackground(in: .rect(cornerRadius: 12))
+          .settingsCard(cornerRadius: 12)
       }
 
       Divider()
@@ -669,7 +666,7 @@ private struct AutomaticNamingSettingsView: View {
             }
           }
           .padding(12)
-          .glassBackground(in: .rect(cornerRadius: 10))
+          .settingsCard(cornerRadius: 10)
         }
       }
       .padding(.horizontal, 16)
@@ -776,14 +773,14 @@ private struct SettingsPage<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       VStack(alignment: .leading, spacing: 4) {
-        Text(title).font(.largeTitle.bold())
+        Text(title).font(.title.bold())
         Text(subtitle).foregroundStyle(.secondary)
       }
       content
-        .glassEffectContainer()
-      Spacer()
+      Spacer(minLength: 0)
     }
     .padding(24)
-    .glassBackground(in: .rect(cornerRadius: 16))
+    .frame(maxWidth: 760, alignment: .leading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
 }

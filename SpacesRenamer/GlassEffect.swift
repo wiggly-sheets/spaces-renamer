@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Native Liquid Glass for the app UI (macOS 26+) with a material fallback for
@@ -37,5 +38,19 @@ public extension View {
       self.background(fallbackMaterial, in: shape)
         .overlay(shape.stroke(.quaternary, lineWidth: 0.5))
     }
+  }
+
+  /// A flat, native settings surface. Uses the system control background and
+  /// separator instead of glass, so settings pages match System Settings.
+  func settingsCard(cornerRadius: CGFloat = 10) -> some View {
+    self
+      .background(
+        Color(nsColor: .controlBackgroundColor),
+        in: .rect(cornerRadius: cornerRadius)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: cornerRadius)
+          .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+      }
   }
 }
