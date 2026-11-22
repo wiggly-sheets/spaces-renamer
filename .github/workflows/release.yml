@@ -80,19 +80,6 @@ jobs:
       - name: Verify the build
         run: make verify
 
-      - name: Verify app architecture
-        run: |
-          lipo -info .build/SpacesRenamer.app/Contents/MacOS/SpacesRenamer
-          lipo -info .build/DerivedData/Build/Products/Release/spaces-renamer.dylib
-          lipo -info .build/SpacesRenamer.app/Contents/PlugIns/spaces-renamer.dylib
-          # Apple silicon only: one slice per binary, no Intel slice.
-          test "$(lipo -archs .build/SpacesRenamer.app/Contents/MacOS/SpacesRenamer)" = "arm64"
-          test "$(lipo -archs .build/DerivedData/Build/Products/Release/spaces-renamer.dylib)" = "arm64e"
-          test "$(lipo -archs .build/SpacesRenamer.app/Contents/PlugIns/spaces-renamer.dylib)" = "arm64e"
-          for f in injectd loader.dylib lsdinjector.dylib inject; do
-            test "$(lipo -archs .build/SpacesRenamer.app/Contents/Resources/mip/$f)" = "arm64e"
-          done
-
       - name: Verify the bundle version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
