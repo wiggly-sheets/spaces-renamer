@@ -16,6 +16,28 @@ enum RemedyAction: Equatable {
   }
 }
 
+/// The one-time system exception that lets the user-owned, ad-hoc loader map
+/// into a platform host process.
+enum LibraryValidation {
+  static let path = "/Library/Preferences/com.apple.security.libraryvalidation.plist"
+  static let disableCommand =
+    "sudo defaults write \(path) DisableLibraryValidation -bool true"
+
+  static var isDisabled: Bool {
+    guard
+      let data = FileManager.default.contents(atPath: path),
+      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+      let values = plist as? [String: Any]
+    else { return false }
+    switch values["DisableLibraryValidation"] {
+    case let value as Bool: return value
+    case let value as NSNumber: return value.boolValue
+    case let value as String: return ["1", "true", "yes"].contains(value.lowercased())
+    default: return false
+    }
+  }
+}
+
 struct DiagnosticCheck: Identifiable {
   enum Status: Equatable {
     case pass, fail, unknown
@@ -42,6 +64,7 @@ final class DiagnosticsModel {
   /// can never drift apart.
   nonisolated static let checkTitles = [
     "System Integrity Protection",
+    "Library Validation",
     "Boot arguments",
     "Injection runtime",
     "Plugin version",
@@ -107,6 +130,7 @@ final class DiagnosticsModel {
     let state = injectorStatus()
     return [
       sip(),
+      libraryValidation(),
       bootArgs(),
       injectionRuntime(state),
       pluginVersion(marker),
@@ -164,6 +188,20 @@ final class DiagnosticsModel {
     check.finding = line
     check.remedy = "macOS can only disable SIP from Recovery: reboot holding the power button, open Terminal, run `csrutil disable`, reboot. Copy the command below."
     check.action = .copyCommand("csrutil disable")
+    return check
+  }
+
+  nonisolated private static func libraryValidation() -> DiagnosticCheck {
+    var check = DiagnosticCheck(title: "Library Validation")
+    if LibraryValidation.isDisabled {
+      check.status = .pass
+      check.finding = "DisableLibraryValidation = true"
+    } else {
+      check.status = .fail
+      check.finding = "Library Validation is enabled for this Mac"
+      check.remedy = "Run the one-time command below, then activate again. It lets the user-owned loader map into the Spaces-bar host."
+      check.action = .copyCommand(LibraryValidation.disableCommand)
+    }
     return check
   }
 

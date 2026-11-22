@@ -95,6 +95,19 @@ mip_install_runtime() {
   /bin/chmod 0644 "$MIP_PRIVATE_ROOT/loader.dylib"
 }
 
+# The loader is user-owned and ad-hoc signed, so the platform host only maps it when the
+# system-wide Library Validation exception is present. Writing it needs admin once; activation
+# stays unprivileged.
+library_validation_disabled() {
+  value=$(/usr/bin/defaults read \
+    /Library/Preferences/com.apple.security.libraryvalidation.plist \
+    DisableLibraryValidation 2>/dev/null || true)
+  case "$value" in
+  1 | true | YES | yes) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
 # Set the variable just long enough to restart the host, then remove it. The install root is
 # user-owned, so this needs no elevation. The loader maps only into WindowManager/Dock.
 mip_activate() {
@@ -124,6 +137,9 @@ mip_on() {
   bundle=${1:-}
   [ -n "$bundle" ] || die "mip on: missing assembled <.bundle> path"
   [ -d "$bundle" ] || die "mip on: no bundle directory at $bundle"
+  if ! library_validation_disabled; then
+    die "mip on: Library Validation is enabled. Run once: sudo defaults write /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation -bool true"
+  fi
   payload=$(mip_payload_dir) || die "mip on: no loader next to this script (Contents/Resources/mip)"
   mip_install_runtime "$payload"
   dest="$MIP_BUNDLES/$MIP_BUNDLE_NAME"

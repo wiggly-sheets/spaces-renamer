@@ -382,6 +382,12 @@ final class InjectionManager {
       problems.append("Could not verify System Integrity Protection status.")
     }
 
+    if !LibraryValidation.isDisabled {
+      problems.append(
+        "Library Validation is enabled. Run once: \(LibraryValidation.disableCommand)."
+      )
+    }
+
     return problems
   }
 

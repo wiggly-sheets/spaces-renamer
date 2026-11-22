@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- MIP activation now checks the system Library Validation exception before it restarts the host. Diagnostics reports the missing prerequisite and copies the one-time `DisableLibraryValidation` command.
 - MIP no longer needs `amfi_get_out_of_my_way` on macOS 27. The old daemon path could not start its ad-hoc `injectd` with a restricted entitlement, and the workaround disabled AMFI system-wide, which broke the JVM. The targeted loader path gets the hook into Dock or WindowManager without changing AMFI or any boot argument.
 - macOS 26 and 27 now draw the app with the native Liquid Glass design. The build stamps the macOS 26 SDK floor into `LC_BUILD_VERSION` instead of the 14.0 deployment target, which previously made macOS select the legacy appearance even though the app compiled against the current SDK. Glass surfaces also batch through the native effect container and use the system interaction response on macOS 26+.
 - The Injection settings page no longer stretches the Settings window when the Details section is expanded: the details now scroll inside a bounded box.

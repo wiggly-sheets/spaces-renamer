@@ -22,6 +22,13 @@ This path needs no root install, no LaunchDaemon, no Mach service and no AMFI
 boot argument. The old `injectd` / `lsdinjector` daemon chain is not shipped:
 on macOS 27 launchd rejects it unless `amfi_get_out_of_my_way` is set.
 
+The loader is user-owned and ad-hoc signed, so the host only maps it with the
+system Library Validation exception:
+
+```bash
+sudo defaults write /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation -bool true
+```
+
 ## Rebuilding
 
 The build needs GNU binutils for `gobjcopy`, which turns the injection payload

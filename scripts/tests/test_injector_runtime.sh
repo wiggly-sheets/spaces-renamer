@@ -65,6 +65,8 @@ assert_fixed "the loader root is user-owned" \
   'MIP_PRIVATE_ROOT="$HOME/Library/Application Support/SpacesRenamer/mip"' "$INJECTOR"
 assert_fixed "the loader is installed without root" \
   'mip_install_runtime "$payload"' "$INJECTOR"
+assert_fixed "activation checks Library Validation" \
+  'library_validation_disabled' "$INJECTOR"
 assert_fixed "activation sets the loader for one restart" \
   'launchctl setenv "$DYLD_VAR" "$loader"' "$INJECTOR"
 assert_fixed "activation clears the variable" \

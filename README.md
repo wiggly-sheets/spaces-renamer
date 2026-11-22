@@ -39,7 +39,7 @@ macOS does not give Spaces persistent names. Spaces Renamer does: choose names y
 It is a native macOS menu-bar app paired with a small bundle injected into the process that draws the Spaces bar. Profile and name changes are published immediately—there is no need to restart the app or the Spaces-bar host.
 
 > [!WARNING]
-> Showing names inside Mission Control requires injecting a bundle into a system process. This currently needs Apple silicon, the `-arm64e_preview_abi` boot argument, and reduced macOS security protections. Read [Security and compatibility](#security-and-compatibility) before enabling it.
+> Showing names inside Mission Control requires injecting a bundle into a system process. This currently needs Apple silicon, the `-arm64e_preview_abi` boot argument, reduced macOS security protections, and the system Library Validation exception. Read [Security and compatibility](#security-and-compatibility) before enabling it.
 
 ## Features
 
@@ -87,13 +87,18 @@ The cask declares `depends_on arch: :arm64`, so `brew install --cask` refuses an
 
 On first launch the app asks for your consent before it attaches to the Spaces-bar process. The grant persists: with **Keep Dock Renaming Active** on, the app re-injects automatically at login and whenever the host process (re)launches, so a Dock or WindowManager restart does not turn renaming off. You can still activate or deactivate manually any time.
 
-Injecting needs three prerequisites, each checked in **Settings → Diagnostics**:
+Injecting needs four prerequisites, each checked in **Settings → Diagnostics**:
 
 1. **Apple silicon.**
 2. **System Integrity Protection (SIP)** disabled, or reduced to the documented narrower configuration (filesystem, debugging, and NVRAM protections off). This is the one step the app cannot automate—SIP can only be disabled from Recovery. The Diagnostics pane copies the command (`csrutil disable`) for you; the Recovery reboot is manual.
 3. **The `-arm64e_preview_abi` boot argument.** In **Settings → Diagnostics**, the **Enable & restart…** button adds the flag for you with an administrator prompt (preserving any existing boot-args) and offers to reboot. The flag takes effect on the next reboot.
+4. **The system Library Validation exception.** The user-owned loader is ad-hoc signed, so a platform host only maps it when `DisableLibraryValidation` is true. Run this once; Settings → Diagnostics can copy it for you:
 
-Once the boot argument is active, activate under **Settings → Injection**, or press **Inject Now** in the menu-bar popover. Activation is unprivileged. Only the boot-argument write asks for a password or Touch ID through the standard macOS admin dialog.
+   ```bash
+   sudo defaults write /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation -bool true
+   ```
+
+Once the boot argument is active and Library Validation is disabled, activate under **Settings → Injection**, or press **Inject Now** in the menu-bar popover. Activation is unprivileged. Only the boot-argument write and the one-time Library Validation command ask for a password or Touch ID.
 
 Never assume a successful activation means the hook is applied. The bundle self-reports through a preference-domain marker; **Settings → Diagnostics** shows **Plugin version** and **Plugin active in host** green only when that report is current in the running host.
 
@@ -231,6 +236,7 @@ For external profile management, Spaces Renamer watches `~/.config/spacesrenamer
 - **Why does "Plugin active" stay red even though activation succeeded?** The handshake is a self-report, not an injector exit code. The bundle writes `Version`/`Build`/`HostPID`/`HostBundleID`/`LoadedAt`/`FirstHookAt` into its host's own preference domain; the first hook firing is what sets `FirstHookAt`. Inspect it with `defaults read com.apple.WindowManager SpacesRenamerPlugin` (or `defaults read com.apple.dock SpacesRenamerPlugin` on macOS 26 and earlier).
 - **Names stop applying after a host restart.** The loader has no daemon and must run its brief activation again. When the app is running, it re-injects automatically; otherwise press **Inject Now**.
 - **MIP activation is greyed out or fails.** The build has no embedded `loader.dylib`; rebuild with `make` so the app carries the loader and bundle.
+- **Activation reports Library Validation is enabled.** Run the one-time command from [Enable Mission Control names](#enable-mission-control-names), then activate again.
 - **Gatekeeper won't open the app.** It's an unsigned build; run `xattr -dr com.apple.quarantine /Applications/SpacesRenamer.app`.
 
 ---
@@ -296,6 +302,7 @@ Injecting code into a system process requires reduced macOS security protections
 - **Apple silicon** (the app is `arm64`, and the host processes are `arm64e` binaries).
 - **SIP disabled** or reduced so filesystem, debugging, and NVRAM protections are off. Only you can change this, from Recovery.
 - **The `-arm64e_preview_abi` boot argument**, which the app can add for you via an administrator prompt. It takes effect on the next reboot.
+- **The system Library Validation exception** (`DisableLibraryValidation=true`). The app copies the one-time command; running it needs an administrator prompt.
 
 To inject manually from a checkout:
 
@@ -305,7 +312,7 @@ To inject manually from a checkout:
 ./injection/injector.sh mip off                                # deactivate
 ```
 
-Only the boot-argument write asks for administrator authorization through the standard macOS dialog. The injection path is unprivileged. The repository never changes SIP, reboots your Mac, installs a privileged helper, or runs the injector without your approval. Building the project is safe: it does not inject, alter boot arguments, change SIP, or restart the host.
+Only the boot-argument write and the one-time Library Validation command ask for administrator authorization through the standard macOS dialog. The injection path is unprivileged. The repository never changes SIP, reboots your Mac, installs a privileged helper, or runs the injector without your approval. Building the project is safe: it does not inject, alter boot arguments, change SIP, or restart the host.
 
 For performance investigation, the bundle emits `os_signpost` data under subsystem `com.wiggly-sheets.spaces-renamer`, category `DockHook`. Attach Instruments to the host and use Points of Interest or Time Profiler while opening Mission Control.
 

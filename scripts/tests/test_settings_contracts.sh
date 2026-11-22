@@ -105,7 +105,7 @@ assert_fixed \
 
 assert_fixed "macOS 27+ host domain exists" 'com.apple.WindowManager' "$INJECTOR_SWIFT"
 assert_fixed "macOS 26 host domain exists" 'com.apple.dock' "$INJECTOR_SWIFT"
-assert_fixed "elevation uses the standard admin prompt" \
+assert_fixed "boot-arg remedy uses the standard admin prompt" \
   'with administrator privileges' "$INJECTOR_SWIFT"
 assert_fixed "the private loader lives in Application Support" \
   'Library/Application Support/SpacesRenamer/mip' "$INJECTOR_SWIFT"
