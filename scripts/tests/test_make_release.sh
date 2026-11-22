@@ -5,6 +5,10 @@
 # is created.
 set -euo pipefail
 
+# A parent `make test VERSION=x` exports VERSION to this script; clear it so the
+# refusal cases below exercise the Makefile guard instead of starting a release.
+unset VERSION MAKEFLAGS MFLAGS MAKELEVEL
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MAKEFILE="$ROOT/Makefile"
 RELEASE_SCRIPT="$ROOT/scripts/release.sh"
