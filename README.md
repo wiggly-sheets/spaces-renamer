@@ -52,7 +52,7 @@ It is a native macOS menu-bar app paired with a small bundle injected into the p
 - Menu-bar display: icon, current Space name, or number and name
 - Configurable global hotkey (Control–Option–R by default)
 - Launch at login, a bundled `sr` command-line tool, deeplinks, and a live TOML config file
-- Two injection backends: **DYLD** (per-user, no root) and **MIP** (system-wide, survives reboot)
+- One injection path: a per-user **MIP** loader, no root and no background service
 - Apple silicon only: menu-bar app (`arm64`), Dock bundle and injection payload (`arm64e`)
 
 Generated naming modes require [yabai](https://github.com/koekeishiya/yabai). Apps mode deliberately filters out background, minimized, hidden, zero-sized, and placeholder windows so labels reflect the apps you are actually using.
@@ -93,58 +93,43 @@ Injecting needs three prerequisites, each checked in **Settings → Diagnostics*
 2. **System Integrity Protection (SIP)** disabled, or reduced to the documented narrower configuration (filesystem, debugging, and NVRAM protections off). This is the one step the app cannot automate—SIP can only be disabled from Recovery. The Diagnostics pane copies the command (`csrutil disable`) for you; the Recovery reboot is manual.
 3. **The `-arm64e_preview_abi` boot argument.** In **Settings → Diagnostics**, the **Enable & restart…** button adds the flag for you with an administrator prompt (preserving any existing boot-args) and offers to reboot. The flag takes effect on the next reboot.
 
-Once the boot argument is active, choose an injection method in **Settings → Injection** and activate under **Injection method**, or press **Inject Now** in the menu-bar popover. The app elevates only where a method needs it: DYLD activation is unprivileged; MIP, like the boot-argument write, asks for a password / Touch ID through the standard macOS admin dialog.
+Once the boot argument is active, activate under **Settings → Injection**, or press **Inject Now** in the menu-bar popover. Activation is unprivileged. Only the boot-argument write asks for a password or Touch ID through the standard macOS admin dialog.
 
 Never assume a successful activation means the hook is applied. The bundle self-reports through a preference-domain marker; **Settings → Diagnostics** shows **Plugin version** and **Plugin active in host** green only when that report is current in the running host.
 
-### Injection methods: DYLD and MIP
+### Injection: targeted MIP loader
 
-Spaces Renamer loads `spaces-renamer.dylib` into the process that draws the Spaces bar—`WindowManager` on macOS 27 and later, `Dock` on earlier releases. Both backends are driven by the same embedded `injector.sh`; pick one in **Settings → Injection → Injection method**.
+Spaces Renamer loads `spaces-renamer.dylib` into the process that draws the Spaces bar—`WindowManager` on macOS 27 and later, `Dock` on earlier releases. The embedded `injector.sh` drives a per-user [MIP](https://github.com/LIJI32/MIP) loader and bundle. The loader is injected into the host only, and its name filter loads the bundle into `WindowManager`/`Dock` alone.
 
-| | **DYLD** (default) | **MIP** |
-| --- | --- | --- |
-| Root needed | No | Yes (one-time install + admin prompt) |
-| Mechanism | Per-user LaunchAgent sets `DYLD_INSERT_LIBRARIES` and restarts the host | A filtered bundle in [MIP](https://github.com/LIJI32/MIP)'s system `Bundles/` directory |
-| Scope | Loaded into every app you launch; no-ops in anything but the host | Injected only into `WindowManager`/`Dock` |
-| Persistence | Reloads at each login (the agent) | Survives reboot with no login agent |
-| Removal | **Inject Now → Deactivate** or `injector.sh dyld off` | **Deactivate** or `injector.sh mip off` (root) |
+**MIP (targeted, no root, no AMFI flag).** MIP loads a bundle only into the executables named in its `Info.plist`—here `WindowManager` and `Dock`. The app places its own loader and bundle in `~/Library/Application Support/SpacesRenamer/mip`, briefly sets `DYLD_INSERT_LIBRARIES` to that loader, and restarts the host. MIP's name filter then loads the hook only in the host.
 
-**DYLD (default, no admin after consent).** A per-user LaunchAgent publishes `DYLD_INSERT_LIBRARIES` and restarts the host, so the plugin reloads at every login and nothing is written outside your home folder. Because the variable is global, the library is loaded into every process you launch while it is on—the hook itself is gated to the host `WindowManager` draws the Spaces bar in for your macOS release (`Dock` up to macOS 26, `WindowManager` from macOS 27), so it does no renaming or status work anywhere else. It is also the injector the app reacts to: if renaming stops applying after a host restart (the agent only re-publishes the variable at login), press **Inject Now** or switch to MIP.
+No daemon, Mach service, privileged helper, persistent LaunchAgent, or `amfi_get_out_of_my_way` boot argument is involved. That flag disables AMFI system-wide and breaks the JVM; this path does not need it.
 
-**MIP (targeted, survives reboot).** [MIP](https://github.com/LIJI32/MIP) is a system-wide injection platform that loads a bundle only into the executables named in its `Info.plist`—here `WindowManager` and `Dock`. It needs a one-time privileged install and an administrator prompt to place the bundle, but no login agent.
+> **Heads up:** during the activation window every GUI app launched at that moment inherits the loader. The loader's filter means only `WindowManager` and `Dock` load the renaming bundle. The window lasts only until the host restarts.
 
-> **Heads up:** MIP is upstream-tested only up to macOS Sonoma. It works on macOS 26/27 with the arm64e preview ABI but is unsupported by its author, and a bad injector can require a [Recovery-boot fix](https://github.com/LIJI32/MIP#disclaimer). macOS updates can also silently drop boot arguments; if the host dies with `Killed: 9` after an OS update, re-check `nvram boot-args` and re-add `-arm64e_preview_abi`.
-
-To use MIP, install it once per its README, then drop in our bundle. The app ships its own MIP runtime, so this step is only needed for a checkout that predates the bundled runtime—see [Bundled injection runtime](#bundled-injection-runtime).
+To use MIP from a checkout:
 
 ```bash
-# One-time MIP install (build from source; there are no prebuilt binaries)
-xcode-select --install
-brew install binutils   # keg-only — put $(brew --prefix binutils)/bin on your PATH so gobjcopy is found
-export PATH="$(brew --prefix binutils)/bin:$PATH"
-# Make or reuse a codesigning identity (a self-signed one is fine; MIP warns
-# that an improperly signed install will make your system unstable)
-make SIGN_IDENTITY="<identity common name>"
-sudo make install
+./injection/injector.sh mip on build/SpacesRenamer.mip.bundle   # no root
+./injection/injector.sh status
+./injection/injector.sh mip off                                # no root
 ```
-
-`sudo make install` places MIP under `/Library/Apple/System/Library/Frameworks/mip`, installs `/usr/local/bin/inject`, registers two root LaunchDaemons (`/Library/LaunchDaemons/local.injectd.plist` and `local.lsdinjector.plist`), sets a global `DisableLibraryValidation=true`, and appends `tss_should_crash=0 amfi_get_out_of_my_way=1` to your boot-args. A reboot is required afterwards. Then activate our bundle in **Settings → Injection → Injection method → MIP** (or `injector.sh mip on <SpacesRenamer.mip.bundle>` as root). The Diagnostics pane greys MIP activation out until MIP is installed.
-
-> MIP's `make uninstall` is incomplete: it removes the MIP frameworks, the `lsdinjector` LaunchDaemon and the library-validation default, but leaves `/usr/local/bin/inject`, the `injectd` LaunchDaemon, and the boot-args it added. If MIP ever prevents Terminal from opening, boot to Recovery and `rm /Library/LaunchDaemons/local.lsdinjector.plist`, which disables MIP.
 
 ### Bundled injection runtime
 
-The app carries a private build of MIP in `Contents/Resources/mip`—`injectd`, `loader.dylib`, `lsdinjector.dylib`, `inject` and two LaunchDaemon templates. It is committed prebuilt, so a fresh Mac needs nothing but `SpacesRenamer.app`: no compiler, no GNU binutils, no separate MIP install. The app copies the runtime into `/Library/SpacesRenamer/mip`, registers its own two LaunchDaemons (`com.wiggly-sheets.spaces-renamer.injectd` and `com.wiggly-sheets.spaces-renamer.lsdinjector`) and owns its own Mach service.
+The app carries a private build of MIP's `loader.dylib` in `Contents/Resources/mip`. It is committed prebuilt, so a fresh Mac needs nothing but `SpacesRenamer.app`: no compiler, no GNU binutils, no separate MIP install. Activation copies the loader and the bundle into `~/Library/Application Support/SpacesRenamer/mip`.
 
 The runtime is `arm64e`, like the hook it loads into the host.
 
-Your own MIP install is left untouched: the private runtime installs into its own root, keeps its own Mach service and chains onto the `launchservicesd` hook instead of replacing it, so both can run side by side. The DYLD path stays available as an explicit fallback for anyone who does not want a root install at all.
+No launchservicesd hook, daemon, LaunchAgent, or system directory is touched.
+
+macOS 27 is the verified target. macOS 26 and earlier use the same Dock host and loader path, but are untested. Releases before 26 may also need hooks from older Spaces Renamer versions to match their Dock layer hierarchy.
 
 Rebuilding the runtime needs GNU binutils (`brew install binutils`); see `injection/mip/README.md`.
 
 ### Uninstall
 
-1. **Deactivate** — in the popover or **Settings → Injection**, or from a checkout `injection/injector.sh dyld off` (DYLD) / `injector.sh mip off` (MIP). This removes the LaunchAgent or MIP bundle and restarts the host clean.
+1. **Deactivate** — in the popover or **Settings → Injection**, or from a checkout `injection/injector.sh mip off`. This restarts the host clean.
 2. Turn off **Launch at login**, then quit the app.
 3. Drag **SpacesRenamer.app** to the Trash, or `brew uninstall --cask spacesrenamer`.
 4. Optionally clear the published names:
@@ -241,11 +226,11 @@ For external profile management, Spaces Renamer watches `~/.config/spacesrenamer
   launchctl bootstrap gui/$(id -u) /System/Library/LaunchAgents/com.apple.WindowManager.plist
   ```
 
-  If the loop started right after activation, `injection/injector.sh dyld off` is the documented recovery—it removes the environment variable and restarts the host clean.
-- **Host dies with `Killed: 9` shortly after launch.** On an arm64e preview ABI the kernel rejects an improperly signed/loaded library. On MIP this is usually the `-arm64e_preview_abi` boot argument having gone missing after a macOS update—re-add it (`sudo nvram boot-args=<existing> -arm64e_preview_abi`) and reboot. On DYLD, re-run `make package-injection` so the payload is ad-hoc signed, then activate.
+  If the loop started right after activation, `injection/injector.sh mip off` is the documented recovery—it removes the environment variable and restarts the host clean.
+- **Host dies with `Killed: 9` shortly after launch.** On an arm64e preview ABI the kernel rejects an improperly signed/loaded library. This is usually the `-arm64e_preview_abi` boot argument having gone missing after a macOS update—re-add it (`sudo nvram boot-args=<existing> -arm64e_preview_abi`) and reboot.
 - **Why does "Plugin active" stay red even though activation succeeded?** The handshake is a self-report, not an injector exit code. The bundle writes `Version`/`Build`/`HostPID`/`HostBundleID`/`LoadedAt`/`FirstHookAt` into its host's own preference domain; the first hook firing is what sets `FirstHookAt`. Inspect it with `defaults read com.apple.WindowManager SpacesRenamerPlugin` (or `defaults read com.apple.dock SpacesRenamerPlugin` on macOS 26 and earlier).
-- **Names stop applying after a host restart.** DYLD's per-user agent only re-publishes the environment variable at login, so a host relaunched outside the agent (for example after a crash) comes back without the hook until the next login. Press **Inject Now**, or use MIP, which is not tied to the login agent.
-- **MIP activation is greyed out.** MIP isn't installed; follow the [MIP install steps](#injection-methods-dyld-and-mip) and reopen the app.
+- **Names stop applying after a host restart.** The loader has no daemon and must run its brief activation again. When the app is running, it re-injects automatically; otherwise press **Inject Now**.
+- **MIP activation is greyed out or fails.** The build has no embedded `loader.dylib`; rebuild with `make` so the app carries the loader and bundle.
 - **Gatekeeper won't open the app.** It's an unsigned build; run `xattr -dr com.apple.quarantine /Applications/SpacesRenamer.app`.
 
 ---
@@ -293,7 +278,6 @@ make build-all         # Build both products, package the payload, verify
 make plugin             # Build the Dock bundle
 make package-injection  # Refresh the arm64e payload
 make bundle             # Assemble the MIP bundle
-make inject             # Activate DYLD manually (injector.sh dyld on)
 make verify             # Verify the arm-only slices and embedded payload
 ```
 
@@ -316,12 +300,12 @@ Injecting code into a system process requires reduced macOS security protections
 To inject manually from a checkout:
 
 ```bash
-./injection/injector.sh dyld on injection/lib/spaces-renamer.dylib   # no root
-./injection/injector.sh status                                        # current host, prerequisites, active backend
-./injection/injector.sh dyld off                                      # deactivate
+./injection/injector.sh mip on build/SpacesRenamer.mip.bundle   # no root
+./injection/injector.sh status
+./injection/injector.sh mip off                                # deactivate
 ```
 
-The MIP path and the boot-argument write ask for administrator authorization through the standard macOS dialog. The repository never changes SIP, reboots your Mac, installs a privileged helper, or runs the injector without your approval. Building the project is safe: it does not inject, alter boot arguments, change SIP, or restart the host.
+Only the boot-argument write asks for administrator authorization through the standard macOS dialog. The injection path is unprivileged. The repository never changes SIP, reboots your Mac, installs a privileged helper, or runs the injector without your approval. Building the project is safe: it does not inject, alter boot arguments, change SIP, or restart the host.
 
 For performance investigation, the bundle emits `os_signpost` data under subsystem `com.wiggly-sheets.spaces-renamer`, category `DockHook`. Attach Instruments to the host and use Points of Interest or Time Profiler while opening Mission Control.
 
@@ -345,4 +329,4 @@ Inspect any of them with e.g. `defaults read com.apple.dock SpacesRenamerNames`.
 
 ## License
 
-Spaces Renamer is available under the [MIT License](LICENSE). It is a modern rewrite of the original [Spaces Renamer](https://github.com/dado3212/spaces-renamer) by Alex Beals, updated for macOS 14+ with DYLD/MIP injection on Apple silicon.
+Spaces Renamer is available under the [MIT License](LICENSE). It is a modern rewrite of the original [Spaces Renamer](https://github.com/dado3212/spaces-renamer) by Alex Beals, updated for macOS 14+ with targeted MIP injection on Apple silicon.

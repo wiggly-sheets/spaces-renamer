@@ -63,14 +63,9 @@ private struct InjectionSettingsView: View {
   @Environment(InjectionManager.self) private var injection
   @State private var showsDetails = false
 
-  /// Plain-language explanation of the three injection methods, shown on the
-  /// info icon and on the picker itself.
+  /// Plain-language explanation of the MIP injection path, shown on the info icon.
   private static let methodHelp = """
-    \(InjectionMode.auto.title): uses the private runtime bundled with the app when it is installed, a system MIP install when it is not, and the LaunchAgent path when neither is available.
-
-    \(InjectionMode.mip.title): the app installs a small background service that loads the renaming hook into Dock and WindowManager only. No other app on your Mac sees the library. It asks for your admin password once and survives a restart.
-
-    \(InjectionMode.dyld.title): no admin password. A per-user login agent sets DYLD_INSERT_LIBRARIES and restarts the host. The library is loaded into every app you launch afterwards, where it does nothing.
+    The app installs its MIP loader in your Application Support folder, then briefly sets DYLD_INSERT_LIBRARIES and restarts Dock or WindowManager. MIP loads the renaming hook only into Dock and WindowManager; no other app sees it. No admin password, no background service, and no boot-argument change. Activate again after a restart of your Mac or of the host.
     """
 
   var body: some View {
@@ -105,25 +100,12 @@ private struct InjectionSettingsView: View {
 
       VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-          Picker("Injection method", selection: Binding(
-            get: { preferences.injectionMode },
-            set: { preferences.setInjectionMode($0) }
-          )) {
-            ForEach(InjectionMode.allCases) { mode in
-              Text(mode.title).tag(mode)
-            }
-          }
-          .pickerStyle(.radioGroup)
-          .help(Self.methodHelp)
-
+          Text("Injection method: MIP loader")
           Image(systemName: "info.circle")
             .foregroundStyle(.secondary)
             .help(Self.methodHelp)
         }
 
-        Text(injection.activeBackendCaption)
-          .font(.callout)
-          .foregroundStyle(.secondary)
       }
       .padding(16)
       .glassBackground(in: .rect(cornerRadius: 12))

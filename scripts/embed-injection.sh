@@ -6,10 +6,9 @@
 #   APP   Built SpacesRenamer.app bundle.
 #         Default: .build/DerivedData/Build/Products/Release/SpacesRenamer.app
 #
-# The DYLD injector script is copied to Contents/Resources, the arm64e payload
-# to Contents/PlugIns, the MIP bundle (assembled by `make bundle` in
-# build/) and the private MIP runtime to Contents/Resources. The app is then
-# re-signed so the embedded resources are covered by its ad-hoc signature.
+# The injector script and the MIP bundle (assembled by `make bundle` in
+# build/) plus the MIP loader are copied to Contents/Resources. The app is then re-signed
+# so the embedded resources are covered by its ad-hoc signature.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,41 +36,26 @@ fi
 # Remove the legacy Injection directory if a previous build left it behind.
 rm -rf "$APP/Contents/Resources/Injection"
 
-# DYLD injector script lives in Resources; the LaunchAgent copies it to
-# ~/Library/Application Support/SpacesRenamer so activation survives app moves.
+# Injector script lives in Resources; it installs the loader and bundle into
+# ~/Library/Application Support/SpacesRenamer.
 install -m 0755 "$ROOT/injection/injector.sh" "$APP/Contents/Resources/injector.sh"
 
-# arm64e payload for the DYLD_INSERT_LIBRARIES path.
-mkdir -p "$APP/Contents/PlugIns"
-install -m 0755 "$ROOT/injection/lib/spaces-renamer.dylib" "$APP/Contents/PlugIns/spaces-renamer.dylib"
-
-# MIP bundle (Info.plist + Contents/MacOS/SpacesRenamer) for the root/MIP path.
+# MIP bundle (Info.plist + Contents/MacOS/SpacesRenamer).
 rm -rf "$APP/Contents/Resources/SpacesRenamer.mip.bundle"
 cp -R "$ROOT/build/SpacesRenamer.mip.bundle" "$APP/Contents/Resources/SpacesRenamer.mip.bundle"
 
-# The private MIP runtime, so a fresh Mac needs nothing but the app: no
-# compiler, no GNU binutils and no separate MIP install. The launcher script
-# finds it next to itself and installs it into its own root. An older tree
-# without the runtime keeps working: the launcher then falls back to the
-# user's own MIP install.
+# The MIP loader, so a fresh Mac needs nothing but the app: no compiler, no GNU
+# binutils and no separate MIP install. The launcher script finds it next to
+# itself and installs it into the user's Application Support.
 if [[ -d "$MIP_RUNTIME" ]]; then
   rm -rf "$APP/Contents/Resources/mip"
   mkdir -p "$APP/Contents/Resources/mip"
-  install -m 0755 \
-    "$MIP_RUNTIME/injectd" \
-    "$MIP_RUNTIME/lsdinjector.dylib" \
-    "$MIP_RUNTIME/inject" \
-    "$APP/Contents/Resources/mip/"
-  install -m 0644 \
-    "$MIP_RUNTIME/loader.dylib" \
-    "$MIP_RUNTIME/spacesrenamer.injectd.plist" \
-    "$MIP_RUNTIME/spacesrenamer.lsdinjector.plist" \
-    "$APP/Contents/Resources/mip/"
+  install -m 0644 "$MIP_RUNTIME/loader.dylib" "$APP/Contents/Resources/mip/"
 else
-  echo "warning: $MIP_RUNTIME not found; the app will not carry a private MIP runtime" >&2
+  echo "warning: $MIP_RUNTIME not found; the app will not carry a MIP loader" >&2
 fi
 
-# The app validates its running code signature before elevating. Xcode's
+# The app validates its running code signature. Xcode's
 # linker signature does not seal resources, so replace it after every resource
 # has been embedded. Embedded Mach-Os are already linker-signed (arm64e
 # requires it), so re-signing without --deep keeps them byte-identical to the

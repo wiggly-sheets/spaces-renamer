@@ -47,7 +47,7 @@ APP_BUILD := cd "$(SPM_DIR)" && xcodebuild -scheme SpacesRenamer -configuration 
 DMG_NAME := SpacesRenamer-v$(VERSION).dmg
 
 .PHONY: help build test verify run install app plugin bundle package-injection mip \
-	build-all dmg background man inject release-artifacts release-notes release clean
+	build-all dmg background man release-artifacts release-notes release clean
 
 .DEFAULT_GOAL := help
 
@@ -76,8 +76,7 @@ help:
 		'  verify               Verify the arm-only slices and the embedded payload.' \
 		'  man                  Build the man page.' \
 		'  background           Render the disk image background.' \
-		'  mip                  Rebuild the private MIP runtime.' \
-		'  inject               Activate the DYLD path by hand.' \
+		'  mip                  Rebuild the private MIP loader.' \
 		'' \
 		'Notes' \
 		'  The product is Apple silicon only: the app is arm64 and the injected hook is' \
@@ -185,9 +184,8 @@ package-injection: plugin
 	# The plugin builds arm64e only, so the built dylib is already the slice
 	# we ship; lipo -thin would reject it as not being a fat file.
 	cp "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" injection/lib/spaces-renamer.dylib
-	# The linker signature alone is rejected for DYLD-injected libraries on
-	# arm64e (the host is SIGKILLed with "Code Signature Invalid" on
-	# relaunch), so re-sign the payload ad-hoc.
+	# The linker signature alone is rejected for libraries loaded into an
+	# arm64e host, so re-sign the payload ad-hoc.
 	codesign --force --sign - injection/lib/spaces-renamer.dylib
 
 # Assemble the MIP bundle consumed by injection/injector.sh `mip on`.
@@ -197,7 +195,7 @@ bundle: package-injection
 	sed -e 's/__VERSION__/$(VERSION)/' -e 's/__BUILD__/$(BUILD)/' packaging/mip/Info.plist > build/SpacesRenamer.mip.bundle/Contents/Info.plist
 	cp injection/lib/spaces-renamer.dylib build/SpacesRenamer.mip.bundle/Contents/MacOS/SpacesRenamer
 
-# Rebuild the private MIP runtime from the vendored source. It is committed
+# Rebuild the private MIP loader from the vendored source. It is committed
 # prebuilt, so this is not part of the default build; see injection/mip/README.md.
 mip:
 	@command -v "$(GOBJCOPY)" >/dev/null 2>&1 || { \
@@ -207,28 +205,20 @@ mip:
 	@echo "Rebuild command (injection/mip/README.md):"
 	@echo '  brew install binutils'
 	@echo '  make mip'
-	@echo '  make -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd BUILD_DIR="$(CURDIR)/.build/mip" SIGN_IDENTITY="$(SIGN_IDENTITY)" GOBJCOPY="$(GOBJCOPY)"'
-	$(MAKE) -C third_party/mip/MIP MIP_ROOT=/Library/SpacesRenamer/mip \
-		MIP_SERVICE_NAME=com.wiggly-sheets.spaces-renamer.injectd \
+	@echo '  make -C third_party/mip/MIP BUILD_DIR="$(CURDIR)/.build/mip" SIGN_IDENTITY="$(SIGN_IDENTITY)" GOBJCOPY="$(GOBJCOPY)" loader.dylib'
+	$(MAKE) -C third_party/mip/MIP \
 		BUILD_DIR="$(CURDIR)/.build/mip" \
 		SIGN_IDENTITY="$(SIGN_IDENTITY)" \
-		GOBJCOPY="$(GOBJCOPY)"
+		GOBJCOPY="$(GOBJCOPY)" \
+		"$(CURDIR)/.build/mip/loader.dylib"
 	# The vendored build makes the loader fat (arm64e plus an Intel slice for
 	# Rosetta). Only arm64e hosts can load it, so ship the arm64e slice alone.
 	lipo .build/mip/loader.dylib -thin arm64e -output .build/mip/loader.arm64e.dylib
 	codesign --force --sign - .build/mip/loader.arm64e.dylib
 	mv .build/mip/loader.arm64e.dylib .build/mip/loader.dylib
-	cp .build/mip/injectd .build/mip/loader.dylib .build/mip/lsdinjector.dylib \
-		.build/mip/inject injection/mip/
-	# The templates keep the @MIP_ROOT@ and @MIP_SERVICE_NAME@ placeholders: the launcher
-	# substitutes them when it installs the runtime.
-	cp third_party/mip/MIP/spacesrenamer.injectd.plist \
-		third_party/mip/MIP/spacesrenamer.lsdinjector.plist injection/mip/
-
-# Manual DYLD activation for testing: copies the payload to ~/Library/Application
-# Support/SpacesRenamer and installs the LaunchAgent.
-inject:
-	./injection/injector.sh dyld on "$(abspath injection/lib/spaces-renamer.dylib)"
+	# Only the loader ships. The daemon path cannot start without AMFI's
+	# amfi_get_out_of_my_way on macOS 27.
+	cp .build/mip/loader.dylib injection/mip/
 
 build-all: app
 	$(MAKE) verify
@@ -289,22 +279,18 @@ verify:
 	echo "Liquid Glass SDK stamp: $$stamp"
 	lipo "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib" -verify_arch arm64e
 	lipo injection/lib/spaces-renamer.dylib -verify_arch arm64e
-	# Embedded DYLD injector script + MIP payload presence checks.
+	# Embedded injector script + MIP payload presence checks.
 	test -x "$(APP)/Contents/Resources/injector.sh"
-	lipo "$(APP)/Contents/PlugIns/spaces-renamer.dylib" -verify_arch arm64e
-	cmp -s injection/lib/spaces-renamer.dylib "$(APP)/Contents/PlugIns/spaces-renamer.dylib"
 	test -d "$(APP)/Contents/Resources/SpacesRenamer.mip.bundle"
 	grep -q WindowManager "$(APP)/Contents/Resources/SpacesRenamer.mip.bundle/Contents/Info.plist"
 	grep -q Dock "$(APP)/Contents/Resources/SpacesRenamer.mip.bundle/Contents/Info.plist"
-	# The private MIP runtime travels with the app.
-	test -x "$(APP)/Contents/Resources/mip/injectd"
-	test -f "$(APP)/Contents/Resources/mip/spacesrenamer.injectd.plist"
+	# The private MIP loader travels with the app.
+	test -f "$(APP)/Contents/Resources/mip/loader.dylib"
 	# Apple silicon only: every shipped binary is a thin, arm-only slice.
 	test "$$(lipo -archs "$(APP)/Contents/MacOS/SpacesRenamer")" = arm64
 	test "$$(lipo -archs "$(DERIVED_DATA)/Build/Products/Release/spaces-renamer.dylib")" = arm64e
 	test "$$(lipo -archs injection/lib/spaces-renamer.dylib)" = arm64e
-	test "$$(lipo -archs "$(APP)/Contents/PlugIns/spaces-renamer.dylib")" = arm64e
-	for f in injectd loader.dylib lsdinjector.dylib inject; do \
+	for f in loader.dylib; do \
 		lipo injection/mip/$$f -verify_arch arm64e; \
 		test "$$(lipo -archs injection/mip/$$f)" = arm64e; \
 		lipo "$(APP)/Contents/Resources/mip/$$f" -verify_arch arm64e; \
@@ -319,9 +305,6 @@ verify:
 	codesign --verify --deep --strict --all-architectures "$(APP)"
 	# The legacy run.sh/dylinject layout must no longer be embedded.
 	test ! -e "$(APP)/Contents/Resources/Injection"
-	# The narrow MIP path must be preferred when a MIP runtime is available.
-	grep -Fq '(runtimeEmbedded || systemMIPAvailable) ? .mip : .dyld' "SpacesRenamer/Injector.swift"
-
 clean:
 	xcodebuild -project $(PROJECT) -scheme spaces-renamer clean
 	swift package --package-path SpacesRenamer clean

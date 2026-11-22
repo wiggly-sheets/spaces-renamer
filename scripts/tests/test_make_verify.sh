@@ -72,8 +72,6 @@ assert_command "packaged payload requires arm64e" \
 	'lipo injection/lib/spaces-renamer.dylib -verify_arch arm64e'
 assert_command "embedded injector script is executable" \
 	'test -x ".build/SpacesRenamer.app/Contents/Resources/injector.sh"'
-assert_command "embedded PlugIns payload requires arm64e" \
-	'lipo ".build/SpacesRenamer.app/Contents/PlugIns/spaces-renamer.dylib" -verify_arch arm64e'
 assert_command "the app must be a thin arm64 slice" \
 	'test "$(lipo -archs ".build/SpacesRenamer.app/Contents/MacOS/SpacesRenamer")" = arm64'
 assert_command "the plugin must be a thin arm64e slice" \
@@ -88,8 +86,6 @@ assert_command "the embedded MIP runtime must be arm64e" \
 	'lipo ".build/SpacesRenamer.app/Contents/Resources/mip/$f" -verify_arch arm64e'
 assert_command "the embedded MIP runtime must be a thin arm64e slice" \
 	'test "$(lipo -archs ".build/SpacesRenamer.app/Contents/Resources/mip/$f")" = arm64e'
-assert_command "embedded payload must match the packaged payload" \
-	'cmp -s injection/lib/spaces-renamer.dylib ".build/SpacesRenamer.app/Contents/PlugIns/spaces-renamer.dylib"'
 assert_command "embedded MIP bundle is present" \
 	'test -d ".build/SpacesRenamer.app/Contents/Resources/SpacesRenamer.mip.bundle"'
 assert_command "MIP bundle names the WindowManager host" \
@@ -115,7 +111,7 @@ assert_fixed "the build-all target exists" "build-all: app" "$MAKEFILE"
 # `make verify` checks the real built bundle after `make app`.
 echo
 echo "Private MIP runtime checks (committed artifacts):"
-for f in injectd loader.dylib lsdinjector.dylib inject; do
+for f in loader.dylib; do
 	assert_pass "private MIP runtime $f is a thin arm64e slice" \
 		test "$(lipo -archs "$ROOT/injection/mip/$f")" = arm64e
 done

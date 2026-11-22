@@ -86,7 +86,6 @@ private struct StoredPreferences: Codable {
   var showSpaceChangeHUD: Bool?
   var automaticInjectionEnabled: Bool?
   var injectionConsentGranted: Bool?
-  var injectionMode: InjectionMode?
 }
 
 @MainActor
@@ -102,7 +101,6 @@ final class PreferencesStore {
   private(set) var showSpaceChangeHUD: Bool
   private(set) var automaticInjectionEnabled: Bool
   private(set) var injectionConsentGranted: Bool?
-  private(set) var injectionMode: InjectionMode = .auto
   private(set) var loginItemEnabled: Bool = false
   var lastError: String?
 
@@ -148,7 +146,6 @@ final class PreferencesStore {
       showSpaceChangeHUD = stored.showSpaceChangeHUD ?? true
       automaticInjectionEnabled = stored.automaticInjectionEnabled ?? false
       injectionConsentGranted = stored.injectionConsentGranted
-      injectionMode = stored.injectionMode ?? .auto
     } else {
       let work = SpaceProfile(name: "Work")
       let home = SpaceProfile(name: "Home")
@@ -162,7 +159,6 @@ final class PreferencesStore {
       showSpaceChangeHUD = true
       automaticInjectionEnabled = false
       injectionConsentGranted = nil
-      injectionMode = .auto
     }
     refreshLoginItemStatus()
     persist()
@@ -264,11 +260,6 @@ final class PreferencesStore {
   func setInjectionConsent(_ granted: Bool) {
     injectionConsentGranted = granted
     automaticInjectionEnabled = granted
-    persistAndNotify()
-  }
-
-  func setInjectionMode(_ mode: InjectionMode) {
-    injectionMode = mode
     persistAndNotify()
   }
 
@@ -447,8 +438,7 @@ final class PreferencesStore {
       showDuplicateApplications: showDuplicateApplications,
       showSpaceChangeHUD: showSpaceChangeHUD,
       automaticInjectionEnabled: automaticInjectionEnabled,
-      injectionConsentGranted: injectionConsentGranted,
-      injectionMode: injectionMode
+      injectionConsentGranted: injectionConsentGranted
     )
     if let data = try? JSONEncoder().encode(stored) {
       try? data.write(to: fileURL, options: .atomic)

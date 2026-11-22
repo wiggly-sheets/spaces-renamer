@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Focused source-level contracts for the DYLD/MIP injection port. These
+# Focused source-level contracts for the MIP injection port. These
 # assertions protect the exact seams the app, injector, and Dock hook rely on:
 # the injector script's activation contract, the Swift backend, the hook's
 # preference-domain reading, and the absence of the legacy dylinject pipeline.
@@ -68,9 +68,9 @@ assert_pass "injector script exists" test -f "$INJECTOR_SCRIPT"
 assert_pass "injector script is executable" test -x "$INJECTOR_SCRIPT"
 assert_pass "injector script has no syntax errors" sh -n "$INJECTOR_SCRIPT"
 
-assert_fixed \
-  "injector uses the shared LaunchAgent label" \
-  'AGENT_LABEL="com.wiggly-sheets.SpacesRenamer.injector"' \
+assert_absent \
+  "injector has no persistent LaunchAgent" \
+  'AGENT_LABEL' \
   "$INJECTOR_SCRIPT"
 assert_fixed \
   "injector activates through DYLD_INSERT_LIBRARIES" \
@@ -85,24 +85,20 @@ assert_fixed \
   'then echo WindowManager; else echo Dock' \
   "$INJECTOR_SCRIPT"
 assert_fixed \
-  "injector checks the system MIP daemon read-only" \
-  'launchctl print system/local.injectd' \
+  "injector installs MIP under the user's Application Support" \
+  'MIP_PRIVATE_ROOT="$HOME/Library/Application Support/SpacesRenamer/mip"' \
   "$INJECTOR_SCRIPT"
 assert_absent \
   "injector does not grep the launchd list for mip" \
   'launchctl list' \
   "$INJECTOR_SCRIPT"
 assert_fixed \
-  "injector repairs the MIP hook chain" \
-  'mip_repair_chain || log "warning: MIP hook repair failed' \
+  "injector injects the MIP loader through DYLD_INSERT_LIBRARIES" \
+  'launchctl setenv "$DYLD_VAR" "$loader"' \
   "$INJECTOR_SCRIPT"
 assert_fixed \
-  "injector checks whether launchservicesd is already hooked" \
-  'if mip_lsd_hooked; then' \
-  "$INJECTOR_SCRIPT"
-assert_fixed \
-  "injector skips the repair when the hook is already present" \
-  'MIP hook already present in launchservicesd' \
+  "injector restores the environment after the host restart" \
+  'launchctl unsetenv "$DYLD_VAR"' \
   "$INJECTOR_SCRIPT"
 
 # --- SpacesRenamer/Injector.swift ---------------------------------------------
@@ -111,8 +107,8 @@ assert_fixed "macOS 27+ host domain exists" 'com.apple.WindowManager' "$INJECTOR
 assert_fixed "macOS 26 host domain exists" 'com.apple.dock' "$INJECTOR_SWIFT"
 assert_fixed "elevation uses the standard admin prompt" \
   'with administrator privileges' "$INJECTOR_SWIFT"
-assert_fixed "MIP well-known path is checked" \
-  '/Library/Apple/System/Library/Frameworks/mip' "$INJECTOR_SWIFT"
+assert_fixed "the private loader lives in Application Support" \
+  'Library/Application Support/SpacesRenamer/mip' "$INJECTOR_SWIFT"
 
 # --- SpacesRenamer/InjectionManager.swift --------------------------------------
 

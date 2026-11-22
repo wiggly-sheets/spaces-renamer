@@ -65,36 +65,15 @@ final class InjectionManager {
   /// Whether the private runtime files are present. Nil when the script did not report it.
   var runtimeInstalled: Bool? { activation.state.runtimeInstalled }
 
-  /// Whether the private runtime's daemon is running. Nil when the script did not report it.
-  var runtimeDaemonRunning: Bool? { activation.state.runtimeDaemon }
-
-  /// Whether launchservicesd maps the runtime's loader. Nil when the script did not report it.
-  var runtimeHooked: Bool? { activation.state.runtimeHooked }
-
   /// Whether our bundle is installed in the active root. Nil when the script did not report it.
   var runtimeBundleInstalled: Bool? { activation.state.runtimeBundle }
 
-  /// The Mach service in use. Nil when the script did not report it.
-  var runtimeService: String? { activation.state.runtimeService }
+  /// Whether the running host has loaded the bundle. Nil when the script did not report it.
+  var runtimeLoaded: Bool? { activation.state.runtimeLoaded }
 
   /// One line describing the injection runtime, for example
-  /// "Runtime: /Library/SpacesRenamer/mip (installed, daemon running, host hook on)".
+  /// "Runtime: ~/Library/.../mip (installed, bundle installed, loader active)".
   var runtimeSummary: String { activation.state.runtimeSummary }
-
-  /// Which runtime the app injects through. The private runtime wins, so a system MIP
-  /// install stays untouched.
-  var runtimeOrigin: MIPRuntimeOrigin {
-    if activation.state.runtimeInstalled == true { return .privateRuntime }
-    if Injector.mipRuntimeEmbedded { return .privateRuntime }
-    if Injector.mipAvailable { return .systemMIP }
-    return .none
-  }
-
-  /// One line naming the injection method that is in use and, for MIP, the runtime
-  /// that provides it. Follows the real resolution, not the preference alone.
-  var activeBackendCaption: String {
-    resolvedBackend().caption(origin: runtimeOrigin)
-  }
 
   private weak var preferences: PreferencesStore?
   private let activation = ActivationModel()
@@ -155,21 +134,17 @@ final class InjectionManager {
   }
 
   func injectNow() {
-    let backend = resolvedBackend()
-    Self.log.notice("inject: activating backend=\(backend.rawValue)")
-    activation.backend = backend
+    Self.log.notice("inject: activating the MIP loader")
     activation.activate()
   }
 
   func deactivate() {
-    let backend = resolvedBackend()
-    Self.log.notice("inject: deactivating backend=\(backend.rawValue)")
-    activation.backend = backend
+    Self.log.notice("inject: deactivating the MIP loader")
     activation.deactivate()
   }
 
-  /// Removes the private injection runtime. The user asks for this explicitly; the manager
-  /// never removes the runtime on its own and never touches the DYLD path.
+  /// Removes the injection runtime. The user asks for this explicitly; the manager never
+  /// removes the runtime on its own.
   func uninstallMIPRuntime() {
     Self.log.notice("inject: removing the private injection runtime")
     activation.uninstallRuntime()
@@ -177,8 +152,8 @@ final class InjectionManager {
 
   /// Automatic injection, scheduled with a delay. The app can start before the
   /// freshly restarted host has loaded the MIP bundle, so injecting straight
-  /// away would ask for elevation — and restart the host — on every login.
-  /// The attempt therefore waits, then re-checks the handshake.
+  /// away would restart the host again on every login. The attempt therefore
+  /// waits, then re-checks the handshake.
   private func injectAutomatically() {
     guard !automaticInjectionScheduled else { return }
     if let last = lastAutomaticInjection,
@@ -235,10 +210,6 @@ final class InjectionManager {
   private var livePluginIsCurrent: Bool {
     guard let marker = PluginMarker.current(), marker.isLive else { return false }
     return marker.isCurrent(forAppVersion: ActivationModel.appVersion)
-  }
-
-  private func resolvedBackend() -> InjectorBackend {
-    (preferences?.injectionMode ?? .auto).resolve()
   }
 
   // MARK: - Private
@@ -332,9 +303,9 @@ final class InjectionManager {
       return
     }
     if snapshot.state.active != .none {
-      // Injector is configured (LaunchAgent env var or MIP bundle directory) but the
-      // plugin itself is not loaded into the running host. Distinguish that from
-      // "nothing configured" so the UI can show a clearer recovery hint.
+      // The loader and bundle are configured, but the plugin itself is not loaded into
+      // the running host. Distinguish that from "nothing configured" so the UI can show a
+      // clearer recovery hint.
       state = .inactive("Configured, not loaded")
       return
     }

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Contracts for the bundled injection runtime: the private MIP root and its
-# Mach service, the launcher subcommands that install and remove the runtime,
-# the status keys the app reads, and the packaging that ships the runtime
-# inside the app bundle.
+# Contracts for the bundled MIP loader: the user-owned root, the short-lived
+# DYLD window, the status keys the app reads, and the packaging.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -17,44 +15,35 @@ fail=0
 assert_fixed() {
   local description="$1" text="$2" file="$3"
   if grep -F -q -e "$text" "$file"; then
-  	pass=$((pass + 1))
-  	echo "ok - $description"
+    pass=$((pass + 1))
+    echo "ok - $description"
   else
-  	fail=$((fail + 1))
-  	echo "FAIL - $description"
+    fail=$((fail + 1))
+    echo "FAIL - $description"
   fi
 }
 
 assert_absent() {
   local description="$1" text="$2" file="$3"
-  local status=0
-  grep -F -q -e "$text" "$file" || status=$?
-  case "$status" in
-    0)
-      fail=$((fail + 1))
-      echo "FAIL - $description"
-      ;;
-    1)
-      pass=$((pass + 1))
-      echo "ok - $description"
-      ;;
-    *)
-      fail=$((fail + 1))
-      echo "FAIL - $description (grep could not read $file, status $status)"
-      ;;
-  esac
+  if grep -F -q -e "$text" "$file"; then
+    fail=$((fail + 1))
+    echo "FAIL - $description"
+  else
+    pass=$((pass + 1))
+    echo "ok - $description"
+  fi
 }
 
 assert_eq() {
   local description="$1" expected="$2" actual="$3"
   if [[ "$actual" == "$expected" ]]; then
-  	pass=$((pass + 1))
-  	echo "ok - $description"
+    pass=$((pass + 1))
+    echo "ok - $description"
   else
-  	fail=$((fail + 1))
-  	echo "FAIL - $description"
-  	echo "  expected: $expected"
-  	echo "  actual:   $actual"
+    fail=$((fail + 1))
+    echo "FAIL - $description"
+    echo "  expected: $expected"
+    echo "  actual:   $actual"
   fi
 }
 
@@ -62,145 +51,69 @@ assert_pass() {
   local description="$1"
   shift
   if "$@"; then
-  	pass=$((pass + 1))
-  	echo "ok - $description"
+    pass=$((pass + 1))
+    echo "ok - $description"
   else
-  	fail=$((fail + 1))
-  	echo "FAIL - $description"
+    fail=$((fail + 1))
+    echo "FAIL - $description"
   fi
 }
 
-# --- the private runtime's identity -------------------------------------------
+# --- the loader root and activation window ------------------------------------
 
-assert_fixed "the private runtime root is fixed" \
+assert_fixed "the loader root is user-owned" \
+  'MIP_PRIVATE_ROOT="$HOME/Library/Application Support/SpacesRenamer/mip"' "$INJECTOR"
+assert_fixed "the loader is installed without root" \
+  'mip_install_runtime "$payload"' "$INJECTOR"
+assert_fixed "activation sets the loader for one restart" \
+  'launchctl setenv "$DYLD_VAR" "$loader"' "$INJECTOR"
+assert_fixed "activation clears the variable" \
+  'launchctl unsetenv "$DYLD_VAR"' "$INJECTOR"
+assert_fixed "activation waits for a new host pid" \
+  '[ "$new" != "$old" ]' "$INJECTOR"
+assert_fixed "the marker's host pid decides loaded state" \
+  'marker_pid' "$INJECTOR"
+
+# --- no daemon path is shipped -------------------------------------------------
+
+assert_absent "the private root is not system-owned" \
   'MIP_PRIVATE_ROOT="/Library/SpacesRenamer/mip"' "$INJECTOR"
-assert_fixed "the private Mach service name is fixed" \
-  'MIP_SERVICE_NAME="com.wiggly-sheets.spaces-renamer.injectd"' "$INJECTOR"
-assert_fixed "the private injectd label is fixed" \
-  'MIP_INJECTD_LABEL="com.wiggly-sheets.spaces-renamer.injectd"' "$INJECTOR"
-assert_fixed "the private lsdinjector label is fixed" \
-  'MIP_LSDINJECTOR_LABEL="com.wiggly-sheets.spaces-renamer.lsdinjector"' "$INJECTOR"
-assert_fixed "the system MIP root keeps its own name" \
-  'SYSTEM_MIP_ROOT="/Library/Apple/System/Library/Frameworks/mip"' "$INJECTOR"
-mip_root_status=0
-grep -q -e '^MIP_ROOT=' "$INJECTOR" || mip_root_status=$?
-assert_eq "the plain MIP_ROOT variable is gone" "1" "$mip_root_status"
-assert_fixed "dyld activation restages a changed payload" \
-  'cmp -s "$dylib" "$DYLIB_STORE"' "$INJECTOR"
+assert_absent "no Mach service remains" 'MIP_SERVICE_NAME' "$INJECTOR"
+assert_absent "no injectd label remains" 'MIP_INJECTD_LABEL' "$INJECTOR"
+assert_absent "no lsdinjector label remains" 'MIP_LSDINJECTOR_LABEL' "$INJECTOR"
+assert_absent "the system MIP root is not referenced" 'SYSTEM_MIP_ROOT' "$INJECTOR"
+assert_absent "the daemon is not bootstrapped" 'launchctl bootstrap system' "$INJECTOR"
 
-# --- mip on installs into the private root ------------------------------------
-
-assert_fixed "the runtime payload is found next to the launcher" \
-  '"$dir/mip"' "$INJECTOR"
-assert_fixed "the runtime files are copied into the private root" \
-  '"$payload/injectd" "$payload/loader.dylib" "$payload/lsdinjector.dylib"' "$INJECTOR"
-assert_fixed "the runtime files land in the private root" \
-  '"$payload/inject" "$MIP_PRIVATE_ROOT/"' "$INJECTOR"
-assert_fixed "the private root gets its bundle and user_data directories" \
-  '"$MIP_BUNDLES" "$MIP_PRIVATE_ROOT/user_data"' "$INJECTOR"
-assert_fixed "the runtime files are owned by root" \
-  'chown -R root:wheel "$MIP_PRIVATE_ROOT"' "$INJECTOR"
-assert_fixed "the loader is not executable" \
-  'chmod 0644 "$MIP_PRIVATE_ROOT/loader.dylib"' "$INJECTOR"
-assert_fixed "the stale copy in the system root is removed" \
-  'mip_remove_bundle "$SYSTEM_MIP_ROOT"' "$INJECTOR"
-assert_fixed "the private daemon is bootstrapped" \
-  'mip_bootstrap_daemon "$MIP_INJECTD_LABEL"' "$INJECTOR"
-assert_fixed "the private daemon is enabled" \
-  'launchctl enable "system/$MIP_INJECTD_LABEL"' "$INJECTOR"
-assert_fixed "the library validation exception is written" \
-  'DisableLibraryValidation -bool true' "$INJECTOR"
-assert_fixed "the hook chain is repaired for the private job" \
-  'launchctl kickstart -k "system/$label"' "$INJECTOR"
-assert_fixed "the hook fallback uses the private injector" \
-  'injector="$MIP_PRIVATE_ROOT/inject"' "$INJECTOR"
-
-# --- the placeholders are substituted at install time --------------------------
-
-assert_fixed "the runtime root placeholder is substituted" \
-  's=@MIP_ROOT@=$MIP_PRIVATE_ROOT=g' "$INJECTOR"
-assert_fixed "the service name placeholder is substituted" \
-  's=@MIP_SERVICE_NAME@=$MIP_SERVICE_NAME=g' "$INJECTOR"
-assert_fixed "the injectd plist template keeps the root placeholder" \
-  '@MIP_ROOT@/injectd' "$PAYLOAD/spacesrenamer.injectd.plist"
-assert_fixed "the injectd plist template keeps the service placeholder" \
-  '@MIP_SERVICE_NAME@' "$PAYLOAD/spacesrenamer.injectd.plist"
-assert_fixed "the lsdinjector plist template keeps the root placeholder" \
-  '@MIP_ROOT@/inject' "$PAYLOAD/spacesrenamer.lsdinjector.plist"
-assert_fixed "the lsdinjector plist template hooks launchservicesd" \
-  '@MIP_ROOT@/lsdinjector.dylib' "$PAYLOAD/spacesrenamer.lsdinjector.plist"
-
-# --- the system MIP install is never written to -------------------------------
-
-assert_absent "the system injectd plist is never written" \
-  '/Library/LaunchDaemons/local.injectd.plist' "$INJECTOR"
-assert_absent "the system lsdinjector plist is never written" \
-  '/Library/LaunchDaemons/local.lsdinjector.plist' "$INJECTOR"
-assert_absent "the system injectd daemon is never booted out" \
-  'launchctl bootout "system/local.injectd"' "$INJECTOR"
-assert_absent "the system injectd daemon is never bootstrapped" \
-  'bootstrap system "/Library/LaunchDaemons/local.injectd.plist"' "$INJECTOR"
-assert_absent "the system root is never removed" \
-  'rm -rf "$SYSTEM_MIP_ROOT"' "$INJECTOR"
-
-# --- mip-runtime uninstall removes only our files -----------------------------
-
-assert_fixed "our injectd daemon is booted out" \
-  'launchctl bootout "system/$MIP_INJECTD_LABEL"' "$INJECTOR"
-assert_fixed "our lsdinjector job is booted out" \
-  'launchctl bootout "system/$MIP_LSDINJECTOR_LABEL"' "$INJECTOR"
-assert_fixed "our injectd plist is removed" \
-  '"/Library/LaunchDaemons/$MIP_INJECTD_LABEL.plist"' "$INJECTOR"
-assert_fixed "our lsdinjector plist is removed" \
-  '"/Library/LaunchDaemons/$MIP_LSDINJECTOR_LABEL.plist"' "$INJECTOR"
-assert_fixed "the private root is removed" \
-  'rm -rf "$MIP_PRIVATE_ROOT"' "$INJECTOR"
-
-# --- the status keys the app reads ---------------------------------------------
+# --- status keys ---------------------------------------------------------------
 
 assert_pass "the launcher has no syntax errors" sh -n "$INJECTOR"
 
 status_out="$(sh "$INJECTOR" status 2>/dev/null)" || status_out=""
 missing_keys=""
-for key in host dyld_agent dyld_env dyld mip_installed mip_bundle mip_daemon \
-  arm64e active runtime_root runtime_installed runtime_daemon runtime_hooked \
-  runtime_bundle runtime_service; do
+for key in host mip_installed mip_bundle arm64e active \
+  runtime_root runtime_installed runtime_bundle runtime_loaded; do
   grep -q "^$key=" <<<"$status_out" || missing_keys="$missing_keys $key"
 done
 assert_eq "status prints every documented key" "" "$missing_keys"
 
 runtime_out="$(sh "$INJECTOR" mip-runtime status 2>/dev/null)" || runtime_rc=$?
-assert_pass "mip-runtime status reports the private service name" \
-  grep -q '^runtime_service=com.wiggly-sheets.spaces-renamer.injectd$' <<<"$runtime_out"
 assert_eq "mip-runtime status runs without root" "0" "${runtime_rc:-0}"
+assert_pass "runtime status names the user root" \
+  grep -q '^runtime_root=.*/Library/Application Support/SpacesRenamer/mip$' <<<"$runtime_out"
 
-# launchservicesd is root-owned, so an unprivileged read cannot inspect its mappings. The
-# status must say "unknown" instead of claiming the hook is missing.
-if [ "$(id -u)" -ne 0 ]; then
-  assert_eq "unprivileged status does not misreport the root-owned hook" \
-    "runtime_hooked=unknown" "$(grep '^runtime_hooked=' <<<"$status_out")"
-fi
+# --- the loader travels with the app -------------------------------------------
 
-# --- the runtime travels with the app -------------------------------------------
-
-assert_fixed "the embed script copies the runtime" \
-  '$APP/Contents/Resources/mip' "$EMBED"
-assert_fixed "the embed script keeps the loader non-executable" \
-  'install -m 0644' "$EMBED"
-assert_fixed "the embed script warns when the runtime is missing" \
-  'will not carry a private MIP runtime' "$EMBED"
-missing_payload=""
-for file in injectd loader.dylib lsdinjector.dylib inject \
-  spacesrenamer.injectd.plist spacesrenamer.lsdinjector.plist; do
-  test -f "$PAYLOAD/$file" || missing_payload="$missing_payload $file"
-done
-assert_eq "the committed runtime payload is complete" "" "$missing_payload"
+assert_fixed "the embed script copies the loader" \
+  'install -m 0644 "$MIP_RUNTIME/loader.dylib"' "$EMBED"
+assert_fixed "the embed script warns when the loader is missing" \
+  'will not carry a MIP loader' "$EMBED"
+assert_fixed "make verify checks the embedded loader" \
+  'test -f "$(APP)/Contents/Resources/mip/loader.dylib"' "$MAKEFILE"
+assert_pass "the committed loader is present" test -f "$PAYLOAD/loader.dylib"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Copy the embed script into a fake tree so its repo-relative sources resolve
-# to fake files.
 mkdir -p "$TMP/embed"
 cp "$EMBED" "$TMP/embed/embed-injection.sh"
 chmod 0755 "$TMP/embed/embed-injection.sh"
@@ -210,48 +123,18 @@ chmod 0755 "$TMP/injection/injector.sh"
 printf 'dylib' >"$TMP/injection/lib/spaces-renamer.dylib"
 printf 'plist' >"$TMP/build/SpacesRenamer.mip.bundle/Contents/Info.plist"
 printf 'mip-executable' >"$TMP/build/SpacesRenamer.mip.bundle/Contents/MacOS/SpacesRenamer"
-for file in injectd loader.dylib lsdinjector.dylib inject \
-  spacesrenamer.injectd.plist spacesrenamer.lsdinjector.plist; do
-  printf 'payload' >"$TMP/injection/mip/$file"
-done
+printf 'payload' >"$TMP/injection/mip/loader.dylib"
 mkdir -p "$TMP/Fake.app/Contents/Resources"
 
 "$TMP/embed/embed-injection.sh" "$TMP/Fake.app" >/dev/null
 
-missing_embedded=""
-for file in injectd loader.dylib lsdinjector.dylib inject \
-  spacesrenamer.injectd.plist spacesrenamer.lsdinjector.plist; do
-  test -f "$TMP/Fake.app/Contents/Resources/mip/$file" ||
-    missing_embedded="$missing_embedded $file"
-done
-assert_eq "the app bundle carries the full runtime payload" "" "$missing_embedded"
-assert_eq "the runtime executables are executable" "755" \
-  "$(stat -f '%Lp' "$TMP/Fake.app/Contents/Resources/mip/injectd")"
-assert_eq "the lsdinjector is executable" "755" \
-  "$(stat -f '%Lp' "$TMP/Fake.app/Contents/Resources/mip/lsdinjector.dylib")"
-assert_eq "the inject CLI is executable" "755" \
-  "$(stat -f '%Lp' "$TMP/Fake.app/Contents/Resources/mip/inject")"
-assert_eq "the loader is not executable" "644" \
+assert_eq "the app bundle carries the loader" "644" \
   "$(stat -f '%Lp' "$TMP/Fake.app/Contents/Resources/mip/loader.dylib")"
-assert_eq "the plists are not executable" "644" \
-  "$(stat -f '%Lp' "$TMP/Fake.app/Contents/Resources/mip/spacesrenamer.injectd.plist")"
+assert_eq "the app bundle carries no daemon" "loader.dylib" \
+  "$(ls "$TMP/Fake.app/Contents/Resources/mip")"
 
-# An older tree without the runtime keeps working: the copy is skipped.
-rm -rf "$TMP/injection/mip"
-embed_out="$("$TMP/embed/embed-injection.sh" "$TMP/Fake.app" 2>&1)" && embed_rc=0 || embed_rc=$?
-assert_eq "the embed script survives a missing runtime" "0" "$embed_rc"
-assert_pass "the embed script warns about the missing runtime" \
-  grep -q "will not carry a private MIP runtime" <<<"$embed_out"
-
-# --- the Makefile ---------------------------------------------------------------
-
-assert_fixed "the plugin reports the same version as the app" \
-  "'MARKETING_VERSION=\$(VERSION)'" "$MAKEFILE"
-assert_fixed "the app target embeds the injection stack" \
-  './scripts/embed-injection.sh "$(APP)"' "$MAKEFILE"
-assert_eq "no target depends on the mip target" "" \
-  "$(grep -n -E '^[a-zA-Z0-9_-]+:.*[[:space:]]mip([[:space:]]|$)' "$MAKEFILE" || true)"
-
-echo
-echo "$pass passed, $fail failed"
-[[ "$fail" -eq 0 ]]
+if [[ $fail -ne 0 ]]; then
+  echo "$fail failed, $pass passed" >&2
+  exit 1
+fi
+echo "$pass passed"

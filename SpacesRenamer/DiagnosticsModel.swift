@@ -1,10 +1,6 @@
 import AppKit
 import Observation
 
-/// Where `injector.sh` stages the DYLD payload. The script does not report whether the file
-/// is still there, so the check tests the path itself.
-private let dyldLibraryPath = NSHomeDirectory() + "/Library/Application Support/SpacesRenamer/spaces-renamer.dylib"
-
 /// A one-tap fix offered next to a failing check.
 enum RemedyAction: Equatable {
   /// Copy a Terminal command to the clipboard (used where macOS forbids automating the step).
@@ -48,7 +44,6 @@ final class DiagnosticsModel {
     "System Integrity Protection",
     "Boot arguments",
     "Injection runtime",
-    "LaunchAgent injector (backup)",
     "Plugin version",
     "Plugin active in host",
   ]
@@ -108,20 +103,19 @@ final class DiagnosticsModel {
 
   nonisolated static func runAll() -> [DiagnosticCheck] {
     let marker = PluginMarker.current()
-    // One status read feeds both injector checks, so the script runs once per pass.
+    // One status read feeds the runtime check, so the script runs once per pass.
     let state = injectorStatus()
     return [
       sip(),
       bootArgs(),
       injectionRuntime(state),
-      launchAgentInjector(state: state, libraryStaged: dyldLibraryStaged()),
       pluginVersion(marker),
       pluginActive(marker),
     ]
   }
 
   /// The injector status, read once per pass. A script that cannot be run yields a state that
-  /// carries the error, so both injector checks report it instead of showing stale facts.
+  /// carries the error, so the runtime check reports it instead of showing stale facts.
   nonisolated private static func injectorStatus() -> InjectorState {
     do {
       return try Injector.status()
@@ -131,11 +125,6 @@ final class DiagnosticsModel {
       fallback.readError = error.localizedDescription
       return fallback
     }
-  }
-
-  /// True when the DYLD payload still sits where the LaunchAgent expects it.
-  nonisolated private static func dyldLibraryStaged() -> Bool {
-    FileManager.default.fileExists(atPath: dyldLibraryPath)
   }
 
   // MARK: - Checks
@@ -202,51 +191,20 @@ final class DiagnosticsModel {
     }
     check.finding = state.runtimeSummary
     if state.runtimeInstalled == true {
-      if state.runtimeDaemon == true, state.runtimeHooked == false {
-        // An elevated status read can see launchservicesd; without the hook no process
-        // receives the loader and the bundle is never loaded.
+      if state.runtimeBundle == false {
         check.status = .fail
-        check.remedy = "The runtime is running, but launchservicesd has no hook. Activate the injection again to repair it."
-      } else if state.runtimeDaemon == true {
+        check.remedy = "The loader is installed, but the bundle is missing. Activate the injection again."
+      } else if state.runtimeLoaded == true {
         check.status = .pass
-      } else if state.runtimeDaemon == false {
-        check.status = .fail
-        check.remedy = "The runtime is installed, but its daemon is not running. Activate the injection again to start it."
+      } else if state.runtimeLoaded == false {
+        check.status = .unknown
+        check.remedy = "The loader and bundle are installed, but the host has not loaded them. Activate the injection again."
       } else {
         check.status = .unknown
       }
     } else if state.runtimeInstalled == false {
       check.status = .fail
       check.remedy = activationRemedy
-    }
-    return check
-  }
-
-  /// The DYLD path is the backup injector, used only when the MIP path is unavailable. An
-  /// unarmed backup is therefore unknown, never a failure; only a broken arming fails.
-  nonisolated static func launchAgentInjector(state: InjectorState, libraryStaged: Bool) -> DiagnosticCheck {
-    var check = DiagnosticCheck(title: "LaunchAgent injector (backup)")
-    guard state.readError == nil else {
-      check.finding = "Could not read the injector status"
-      return check
-    }
-    let facts = "\(state.dyldAgent ? "login agent present" : "no login agent"), "
-      + "\(state.dyldEnv ? "environment set" : "environment unset"), "
-      + "\(libraryStaged ? "library staged" : "library not staged")"
-    if state.dyldOn {
-      if libraryStaged {
-        check.status = .pass
-        check.finding = "armed: \(facts)"
-      } else {
-        // The environment names a payload that is gone, so every app launched from now on
-        // would fail to load the library: broken, not unused.
-        check.status = .fail
-        check.finding = "broken: armed, but the staged library is missing (\(dyldLibraryPath))"
-        check.remedy = "Activate the LaunchAgent injector again to restage the library."
-      }
-    } else {
-      check.status = .unknown
-      check.finding = "not armed: \(facts). Backup path, used only when MIP is unavailable."
     }
     return check
   }

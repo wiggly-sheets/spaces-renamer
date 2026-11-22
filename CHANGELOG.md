@@ -8,12 +8,15 @@
 
 ### Changed
 
+- Removed the persistent DYLD/LaunchAgent backend and the injection-method preference. The app now has one injection path: the targeted MIP loader. There is no way to arm a global `DYLD_INSERT_LIBRARIES` for every app.
+- MIP activation is now per-user and unprivileged. The app installs only MIP's `loader.dylib` and the renaming bundle under `~/Library/Application Support/SpacesRenamer/mip`, briefly injects that loader into Dock or WindowManager, and leaves no daemon, Mach service, LaunchDaemon, or system directory behind. MIP's name filter still limits the renaming hook to the Spaces-bar host.
 - The build follows the shared Makefile vocabulary of the estate: `make` prints the list of the targets, and `build`, `test`, `app`, `dmg`, `release-artifacts`, `release VERSION=x.y.z` and `clean` do the work. `make release` takes the version from the command line, refuses a dirty working tree, a version whose tag already exists and a bundle that reports another version, creates the annotated tag locally and prints the push command. It never pushes.
 - The tag is the only source of the version. `MARKETING_VERSION` in the Xcode project is a build setting that the Makefile overrides, and the release workflow passes the version of the tag to the build.
 - The checksum file next to the disk image is written by `make release-artifacts` and names the bare asset now: the digest, two spaces, `SpacesRenamer-v<version>.dmg`. `shasum -c` reads it.
 
 ### Fixed
 
+- MIP no longer needs `amfi_get_out_of_my_way` on macOS 27. The old daemon path could not start its ad-hoc `injectd` with a restricted entitlement, and the workaround disabled AMFI system-wide, which broke the JVM. The targeted loader path gets the hook into Dock or WindowManager without changing AMFI or any boot argument.
 - macOS 26 and 27 now draw the app with the native Liquid Glass design. The build stamps the macOS 26 SDK floor into `LC_BUILD_VERSION` instead of the 14.0 deployment target, which previously made macOS select the legacy appearance even though the app compiled against the current SDK. Glass surfaces also batch through the native effect container and use the system interaction response on macOS 26+.
 - The Injection settings page no longer stretches the Settings window when the Details section is expanded: the details now scroll inside a bounded box.
 - The injected hook now runs only in the process that draws the Spaces bar for the running macOS release (Dock up to macOS 26, WindowManager from macOS 27). DYLD injection reaches every process the user launches, so the old check let unrelated apps run the legacy Dock layer path and even write a plugin marker into their own preferences. On macOS 27 the legacy path is disabled entirely; before, it scanned display-width layers in WindowManager without renaming anything.

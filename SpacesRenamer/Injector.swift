@@ -1,120 +1,23 @@
 import AppKit
 import Observation
 
-/// User-facing preference for which injection mechanism to use. `auto` defers to the narrow
-/// MIP path when a MIP runtime is available — the app's own runtime or a system install — and
-/// falls back to DYLD otherwise; the explicit cases let a user override either way (for
-/// example, force DYLD when MIP is installed but broken, or force MIP for testing on a machine
-/// without the framework).
-enum InjectionMode: String, Codable, CaseIterable, Identifiable {
-  case auto
-  case mip
-  case dyld
-
-  var id: Self { self }
-
-  var title: String {
-    switch self {
-    case .auto: return "Auto"
-    case .mip: return "MIP (macOS Injection Platform)"
-    case .dyld: return "LaunchAgent (DYLD)"
-    }
-  }
-
-  /// Resolves the preference to the backend the injector actually runs.
-  func resolve() -> InjectorBackend {
-    switch self {
-    case .auto: return .preferred
-    case .mip: return .mip
-    case .dyld: return .dyld
-    }
-  }
-}
-
-/// The two ways to load `spaces-renamer.dylib` into the Spaces-bar host. Both are driven by the
-/// embedded `injector.sh`; the difference is the loading mechanism and its cost.
-enum InjectorBackend: String, CaseIterable, Identifiable {
-  case mip
-  case dyld
-
-  var id: String { rawValue }
-
-  var title: String {
-    switch self {
-    case .dyld: "LaunchAgent (DYLD)"
-    case .mip: "MIP (macOS Injection Platform)"
-    }
-  }
-
-  /// One line naming the method in use and, for MIP, the runtime that provides it.
-  func caption(origin: MIPRuntimeOrigin) -> String {
-    switch self {
-    case .dyld:
-      return "In use: LaunchAgent (DYLD)"
-    case .mip:
-      switch origin {
-      case .privateRuntime: return "In use: MIP — the private runtime"
-      case .systemMIP: return "In use: MIP — the system MIP install"
-      case .none: return "In use: MIP — no runtime installed yet"
-      }
-    }
-  }
-
-  /// The narrow path when a MIP runtime is available: it loads the bundle only into the
-  /// executables named in the bundle's Info.plist, so nothing beyond Dock/WindowManager ever
-  /// sees the dylib.
-  static func preferred(runtimeEmbedded: Bool, systemMIPAvailable: Bool) -> InjectorBackend {
-    (runtimeEmbedded || systemMIPAvailable) ? .mip : .dyld
-  }
-
-  /// The backend for this machine. The private runtime that ships with the app wins, so a
-  /// system MIP install stays untouched.
-  static var preferred: InjectorBackend {
-    Self.preferred(
-      runtimeEmbedded: Injector.mipRuntimeEmbedded,
-      systemMIPAvailable: Injector.mipAvailable
-    )
-  }
-}
-
-/// Which MIP runtime the app injects through.
-enum MIPRuntimeOrigin: Equatable {
-  /// The private runtime that ships inside the app, installed under `/Library/SpacesRenamer/mip`.
-  case privateRuntime
-  /// The system-wide MIP install.
-  case systemMIP
-  /// No MIP runtime is available.
-  case none
-}
-
 /// Parsed output of `injector.sh status`.
 struct InjectorState {
   enum Active: String {
-    case none, dyld, mip
+    case none, mip
   }
 
   var host = "WindowManager"
-  var dyldAgent = false
-  var dyldEnv = false
-  var dyldOn = false
   var mipInstalled = false
   var mipBundleOn = false
-  /// Whether MIP's daemon is running, as reported by `mip_daemon=up|down`.
-  /// Nil when the injector script did not report the key.
-  var mipDaemon: Bool?
-  /// Root in use for MIP: our private runtime, the system MIP root, or the private root
-  /// the runtime would be installed into. Nil when the script did not report the key.
+  /// Root in use for MIP. Nil when the script did not report the key.
   var runtimeRoot: String?
   /// Whether our private runtime files are present.
   var runtimeInstalled: Bool?
-  /// Whether our private runtime's daemon is running.
-  var runtimeDaemon: Bool?
-  /// Whether launchservicesd maps the runtime's loader.
-  var runtimeHooked: Bool?
   /// Whether our bundle is installed in the active root.
   var runtimeBundle: Bool?
-  /// Mach service in use, for example `com.wiggly-sheets.spaces-renamer.injectd`.
-  var runtimeService: String?
+  /// Whether the running host has loaded the bundle.
+  var runtimeLoaded: Bool?
   var active: Active = .none
   /// Set when the injector script itself could not be read. Lets callers distinguish
   /// "status unknown" from "status read, nothing configured".
@@ -129,20 +32,12 @@ struct InjectorState {
       let value = String(parts[1])
       switch parts[0] {
       case "host": host = value
-      case "dyld_agent": dyldAgent = value == "present"
-      case "dyld_env": dyldEnv = value == "set"
-      case "dyld": dyldOn = value == "on"
       case "mip_installed": mipInstalled = value == "yes"
       case "mip_bundle": mipBundleOn = value == "on"
-      case "mip_daemon": mipDaemon = value == "up"
       case "runtime_root": runtimeRoot = value
       case "runtime_installed": runtimeInstalled = value == "on"
-      case "runtime_daemon": runtimeDaemon = value == "up"
-      // The launchservicesd mapping list is only readable as root; the script reports
-      // "unknown" rather than a false "off" when it cannot inspect the host.
-      case "runtime_hooked": runtimeHooked = value == "unknown" ? nil : (value == "on")
       case "runtime_bundle": runtimeBundle = value == "on"
-      case "runtime_service": runtimeService = value
+      case "runtime_loaded": runtimeLoaded = value == "on"
       case "active": active = Active(rawValue: value) ?? .none
       default: break
       }
@@ -152,19 +47,18 @@ struct InjectorState {
   /// The runtime root, or a placeholder when the injector did not report one.
   var runtimeRootDescription: String { runtimeRoot ?? "unknown root" }
 
-  /// The runtime facts, spelled out so a missing daemon or hook stays visible instead of
-  /// reading as "everything is fine".
+  /// The runtime facts, spelled out so a missing bundle or an unloaded host stays visible
+  /// instead of reading as "everything is fine".
   var runtimeFacts: [String] {
     [
       runtimeInstalled.map { $0 ? "installed" : "not installed" } ?? "install state unknown",
-      runtimeDaemon.map { $0 ? "daemon running" : "daemon down" } ?? "daemon state unknown",
-      runtimeHooked.map { $0 ? "host hook on" : "host hook off" } ?? "host hook state unknown",
       runtimeBundle.map { $0 ? "bundle installed" : "bundle not installed" } ?? "bundle state unknown",
+      runtimeLoaded.map { $0 ? "loader active" : "loader inactive" } ?? "loader state unknown",
     ]
   }
 
   /// One line describing the runtime, for example
-  /// "Runtime: /Library/SpacesRenamer/mip (installed, daemon running, host hook on)".
+  /// "Runtime: /Users/me/Library/.../mip (installed, bundle installed, loader active)".
   var runtimeSummary: String {
     "Runtime: \(runtimeRootDescription) (\(runtimeFacts.joined(separator: ", ")))"
   }
@@ -187,27 +81,23 @@ enum InjectorError: LocalizedError {
   }
 }
 
-/// The app's front-end to `scripts/injector.sh`, embedded in the app bundle. DYLD activation is
-/// unprivileged; MIP activation copies a bundle into a system directory and asks for an admin
-/// password through `osascript`.
+/// The app's front-end to `injector.sh`, embedded in the app bundle. The MIP loader and bundle
+/// live in the user's Application Support, so activation is unprivileged.
 enum Injector {
   static var scriptURL: URL? {
     Bundle.main.url(forResource: "injector", withExtension: "sh")
-  }
-
-  static var dylibURL: URL? {
-    Bundle.main.builtInPlugInsURL?.appendingPathComponent("spaces-renamer.dylib")
   }
 
   static var mipBundleURL: URL? {
     Bundle.main.url(forResource: "SpacesRenamer.mip", withExtension: "bundle")
   }
 
-  /// True when the pieces DYLD activation needs are present in this build.
+  /// True when the pieces MIP activation needs are present in this build.
   static var isEmbedded: Bool {
-    guard let script = scriptURL, let dylib = dylibURL else { return false }
+    guard let script = scriptURL, let bundle = mipBundleURL else { return false }
     return FileManager.default.fileExists(atPath: script.path)
-      && FileManager.default.fileExists(atPath: dylib.path)
+      && FileManager.default.fileExists(atPath: bundle.path)
+      && mipRuntimeEmbedded
   }
 
   static func status() throws -> InjectorState {
@@ -220,29 +110,15 @@ enum Injector {
     return InjectorState(statusOutput: output)
   }
 
-  /// Runs the injector for the backend and returns its combined output.
-  static func activate(_ backend: InjectorBackend) throws -> String {
-    switch backend {
-    case .dyld:
-      guard let dylib = dylibURL, FileManager.default.fileExists(atPath: dylib.path) else {
-        throw InjectorError.notEmbedded
-      }
-      return try sh(["dyld", "on", dylib.path])
-    case .mip:
-      guard let script = scriptURL, let bundle = mipBundleURL else { throw InjectorError.notEmbedded }
-      return try admin("/bin/sh \(shellQuote(script.path)) mip on \(shellQuote(bundle.path))")
-    }
+  /// Installs the loader and bundle, then restarts the host into them.
+  static func activate() throws -> String {
+    guard let bundle = mipBundleURL else { throw InjectorError.notEmbedded }
+    return try sh(["mip", "on", bundle.path])
   }
 
-  /// Runs the deactivation command for the backend and returns its output.
-  static func deactivate(_ backend: InjectorBackend) throws -> String {
-    switch backend {
-    case .dyld:
-      return try sh(["dyld", "off"])
-    case .mip:
-      guard let script = scriptURL else { throw InjectorError.notEmbedded }
-      return try admin("/bin/sh \(shellQuote(script.path)) mip off")
-    }
+  /// Unloads the hook by restarting the host without the loader.
+  static func deactivate() throws -> String {
+    return try sh(["mip", "off"])
   }
 
   /// Adds `-arm64e_preview_abi` to boot-args via an admin prompt (root writes NVRAM).
@@ -326,38 +202,24 @@ enum Injector {
     ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 ? "WindowManager" : "Dock"
   }
 
-  /// True when the MIP injection framework is installed at its well-known path. MIP loads the
-  /// bundle only into the executables named in the bundle's Info.plist, so it is the narrow
-  /// injection path; DYLD_INSERT_LIBRARIES is global and loads the library into every GUI app
-  /// launched while it is set.
-  static var mipAvailable: Bool {
-    FileManager.default.fileExists(atPath: systemMIPRoot)
+  /// Root of the private loader the app installs on demand.
+  static var privateMIPRoot: String {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Application Support/SpacesRenamer/mip").path
   }
-
-  /// Root of the private runtime the app installs on demand. The system MIP root is left
-  /// untouched, so a user install keeps working.
-  static let privateMIPRoot = "/Library/SpacesRenamer/mip"
-
-  /// Root of the system-wide MIP install.
-  static let systemMIPRoot = "/Library/Apple/System/Library/Frameworks/mip"
 
   /// True when this build carries the private runtime payload, so MIP can be used without a
   /// separate user install.
   static var mipRuntimeEmbedded: Bool {
     guard let root = Bundle.main.resourceURL?.appendingPathComponent("mip") else { return false }
     let manager = FileManager.default
-    // The launchservicesd injector is part of the payload; without it MIP installs but the
-    // host never receives the loader.
-    return ["injectd", "loader.dylib", "lsdinjector.dylib", "inject"].allSatisfy {
-      manager.fileExists(atPath: root.appendingPathComponent($0).path)
-    }
+    return manager.fileExists(atPath: root.appendingPathComponent("loader.dylib").path)
   }
 
-  /// Removes the private runtime through an admin prompt. Only our own daemons, plists and
-  /// root are touched; a system MIP install stays.
+  /// Removes the private loader and bundle from the user's Application Support.
   static func uninstallMIPRuntime() throws -> String {
-    guard let script = scriptURL else { throw InjectorError.notEmbedded }
-    return try admin("/bin/sh \(shellQuote(script.path)) mip-runtime uninstall")
+    _ = try sh(["mip-runtime", "uninstall"])
+    return ""
   }
 }
 
@@ -447,15 +309,13 @@ final class ActivationModel {
   /// Number of finished activation attempts. Observers use it to detect the end
   /// of an attempt without polling.
   private(set) var completedAttempts = 0
-  var backend: InjectorBackend = .preferred
   var errorMessage: String?
 
   var isEmbedded: Bool { Injector.isEmbedded }
 
   /// Renaming is active only when the plugin itself reports it is loaded into the running host
-  /// at this app's version. Injector-side artifacts (a configured LaunchAgent env var or a MIP
-  /// bundle directory) do not prove the dylib ever loaded — the plugin handshake is the ground
-  /// truth.
+  /// at this app's version. An installed loader or bundle does not prove the dylib ever loaded —
+  /// the plugin handshake is the ground truth.
   var isActive: Bool { pluginIsLive && pluginIsCurrent }
 
   func refresh(completion: (() -> Void)? = nil) {
@@ -463,31 +323,30 @@ final class ActivationModel {
   }
 
   func activate() {
-    perform(waitsForPlugin: true) { try Injector.activate($0) }
+    perform(waitsForPlugin: true) { try Injector.activate() }
   }
 
   func deactivate() {
-    perform { try Injector.deactivate($0) }
+    perform { try Injector.deactivate() }
   }
 
   /// Removes the private runtime. Only the user asks for this; the app never uninstalls the
   /// runtime on its own.
   func uninstallRuntime() {
-    perform { _ in try Injector.uninstallMIPRuntime() }
+    perform { try Injector.uninstallMIPRuntime() }
   }
 
   private func perform(
     waitsForPlugin: Bool = false,
-    _ work: @escaping @Sendable (InjectorBackend) throws -> String?
+    _ work: @escaping @Sendable () throws -> String?
   ) {
     guard !isBusy else { return }
     isBusy = true
     errorMessage = nil
-    let backend = backend
     Task {
       var succeeded = false
       do {
-        let output = try await Task.detached(priority: .userInitiated) { try work(backend) }.value
+        let output = try await Task.detached(priority: .userInitiated) { try work() }.value
         lastOutput = output
         succeeded = true
       } catch let error as InjectorError {
@@ -504,7 +363,7 @@ final class ActivationModel {
         if !live {
           let host = hasLoaded ? state.host : Injector.defaultHost
           errorMessage = "The injector ran, but the plugin did not load into \(host) within 15 s. "
-            + "MIP's hook into launchservicesd may be missing."
+            + "Check the -arm64e_preview_abi boot argument, then activate again."
         }
       }
       await reload()

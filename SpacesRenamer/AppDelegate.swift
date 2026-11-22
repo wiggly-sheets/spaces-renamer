@@ -457,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard preferences.injectionConsentGranted == nil else { return }
     let alert = NSAlert()
     alert.messageText = "Enable Dock renaming?"
-    alert.informativeText = "Spaces Renamer injects its bundled hook into Dock to rename Spaces in Mission Control. Your choice persists: renaming is re-applied automatically after Dock or WindowManager restarts and at login. Administrator approval is requested only for the managed injection mode or boot-argument changes."
+    alert.informativeText = "Spaces Renamer injects its bundled hook into Dock to rename Spaces in Mission Control. Your choice persists: renaming is re-applied automatically after Dock or WindowManager restarts and at login. Administrator approval is requested only for boot-argument changes."
     alert.addButton(withTitle: "Enable and Inject")
     alert.addButton(withTitle: "Not Now")
 
@@ -500,7 +500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let alert = NSAlert()
     alert.messageText = "Keep Dock renaming available after restarting your Mac?"
-    alert.informativeText = "Launch Spaces Renamer at login so it can detect the new Dock process and request administrator approval to restore the hook."
+    alert.informativeText = "Launch Spaces Renamer at login so it can detect the new Dock process and restore the hook."
     alert.addButton(withTitle: "Enable Launch at Login")
     alert.addButton(withTitle: "Not Now")
     if alert.runModal() == .alertFirstButtonReturn {
@@ -525,7 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = "Injection setup required"
-    alert.informativeText = "\(warning) Spaces Renamer saved your choice. After completing setup and restarting your Mac, it will request administrator approval to inject."
+    alert.informativeText = "\(warning) Spaces Renamer saved your choice. After completing setup and restarting your Mac, it will inject the hook."
     alert.addButton(withTitle: "Open Injection Settings")
     alert.addButton(withTitle: "Later")
     if alert.runModal() == .alertFirstButtonReturn {

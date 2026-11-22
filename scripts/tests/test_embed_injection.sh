@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/embed-injection.sh. Copies the script into a temp tree so
 # its repo-relative sources (injection/ and build/) resolve to fake files,
-# then verifies the DYLD/MIP layout lands in a fake app bundle.
+# then verifies the MIP layout lands in a fake app bundle.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -51,13 +51,12 @@ printf 'legacy' > "$TMP/Fake.app/Contents/Resources/Injection/run.sh"
 # Run the script with the fake app path.
 "$SCRIPT" "$TMP/Fake.app" >/dev/null
 
-# Verify the new DYLD/MIP layout was copied.
+# Verify the MIP layout was copied.
 assert_eq "injector.sh exists in Resources" "yes" "$(test -f "$TMP/Fake.app/Contents/Resources/injector.sh" && echo yes || echo no)"
 assert_eq "injector.sh is executable" "yes" "$(test -x "$TMP/Fake.app/Contents/Resources/injector.sh" && echo yes || echo no)"
 assert_eq "injector.sh content" "$(cat "$TMP/injection/injector.sh")" "$(cat "$TMP/Fake.app/Contents/Resources/injector.sh")"
 
-assert_eq "PlugIns dylib exists" "yes" "$(test -f "$TMP/Fake.app/Contents/PlugIns/spaces-renamer.dylib" && echo yes || echo no)"
-assert_eq "PlugIns dylib content" "$(cat "$TMP/injection/lib/spaces-renamer.dylib")" "$(cat "$TMP/Fake.app/Contents/PlugIns/spaces-renamer.dylib")"
+assert_eq "no PlugIns dylib exists" "yes" "$(test ! -e "$TMP/Fake.app/Contents/PlugIns/spaces-renamer.dylib" && echo yes || echo no)"
 
 assert_eq "MIP bundle exists in Resources" "yes" "$(test -d "$TMP/Fake.app/Contents/Resources/SpacesRenamer.mip.bundle" && echo yes || echo no)"
 assert_eq "MIP bundle Info.plist present" "yes" "$(test -f "$TMP/Fake.app/Contents/Resources/SpacesRenamer.mip.bundle/Contents/Info.plist" && echo yes || echo no)"
