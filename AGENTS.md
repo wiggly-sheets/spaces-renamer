@@ -448,10 +448,10 @@ In priority order:
     which renders `Casks/spacesrenamer.rb` from its own template. This
     repository keeps no cask file, and the release workflow does not write
     into the tap.
-  - Post-release tap-test job (non-gating): `brew tap` + `brew install --cask`
-    + version assert on the arm64 CI runner. The tap's cask declares
-    `depends_on arch: :arm64`, so Intel Macs are refused instead of installing
-    an app that cannot work.
+  - The tap follows releases on a daily schedule. The release workflow does not
+    test it, because a fresh release would still see the previous cask. The tap's
+    cask declares `depends_on arch: :arm64`, so Intel Macs are refused instead
+    of installing an app that cannot work.
   - Release notes extracted from `CHANGELOG.md`; generic fallback; never fail
     the release over missing changelog text.
   - `--prerelease` only for prerelease tags (tag contains `-`).

@@ -16,9 +16,9 @@
 # which renders it from its own template. This repository keeps no cask file,
 # and the workflow never writes into the tap.
 #
-# A non-gating tap test then proves the tap works end-to-end on the arm64
-# runner. The tap's cask declares `depends_on arch: :arm64`, so Intel Macs are
-# refused by Homebrew instead of installing an app that cannot run there.
+# The tap renders the cask from its own template on a daily schedule. This
+# workflow does not write into the tap and does not test it: a tap install
+# right after a release would still see the previous cask version.
 #
 # Prerequisites for a production-quality release:
 #   - Developer ID Application certificate for signing
@@ -116,25 +116,3 @@ jobs:
             $PRERELEASE
           gh release upload "$GITHUB_REF_NAME" \
             "$DMG" "${DMG}.sha256"
-
-  tap-test:
-    name: Homebrew tap test (arm64)
-    needs: build
-    if: ${{ !contains(github.ref_name, '-') }}
-    runs-on: macos-26
-    # Non-gating: a tap failure must never roll back or block a release.
-    continue-on-error: true
-
-    steps:
-      - name: Tap, install, and verify version
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          brew tap wiggly-sheets/homebrew-tap
-          brew trust wiggly-sheets/homebrew-tap
-          brew install --cask spacesrenamer
-          INSTALLED="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/SpacesRenamer.app/Contents/Info.plist)"
-          echo "Installed SpacesRenamer ${INSTALLED} (expected ${VERSION})"
-          if [[ "$INSTALLED" != "$VERSION" ]]; then
-            echo "::error::Installed version ${INSTALLED} does not match tag version ${VERSION}"
-            exit 1
-          fi

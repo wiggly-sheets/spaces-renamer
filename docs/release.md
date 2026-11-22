@@ -38,8 +38,8 @@ The release ships one architecture per binary: `arm64` for the menu-bar app,
 The cask in the tap declares `depends_on arch: :arm64`, so `brew install --cask`
 refuses an Intel Mac instead of installing an app that cannot work.
 
-The tap test on the arm64 runner is the only automated install check. To
-reproduce it locally on an Apple silicon Mac:
+The tap syncs its cask from the latest stable release on a daily schedule. To
+check an install locally on an Apple silicon Mac after that sync:
 
 ```bash
 brew tap wiggly-sheets/homebrew-tap
@@ -71,11 +71,12 @@ The Release workflow then:
 2. checks that the built bundle reports the version of the tag;
 3. creates the GitHub Release with the CHANGELOG section as the notes
    (prerelease only when the tag contains a dash);
-4. runs a non-gating tap test (`brew tap` + `brew install --cask` + version
-   assert) on the arm64 runner, installing from the DMG.
+4. does not write into the tap or test it. The tap follows the latest stable
+   release on its own daily schedule, so an install check during the release
+   run would still see the previous cask version.
 
-Prerelease tags (e.g. `v1.0.0-rc.1`) create prerelease GitHub Releases but
-skip the tap test, so the stable cask is never clobbered.
+Prerelease tags (e.g. `v1.0.0-rc.1`) create prerelease GitHub Releases. The tap
+ignores prereleases, so the stable cask is never clobbered.
 
 The cask itself is not part of this repository. The tap
 `wiggly-sheets/homebrew-tap` renders `Casks/spacesrenamer.rb` from its own
