@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-22
+
 ### Added
 
 - The app now ships a layered Icon Composer icon: macOS 26 and 27 render the native Liquid Glass icon in light, dark, and tinted appearances, while `actool` still emits the legacy `.icns` for macOS 14 and 15.
