@@ -5,20 +5,15 @@ let package = Package(
   name: "SpacesRenamer",
   platforms: [.macOS("14.0")],
   targets: [
-    .target(
-      name: "CGSPrivate",
-      path: "CGSPrivate",
-      linkerSettings: [.linkedFramework("CoreGraphics")]
-    ),
     .executableTarget(
       name: "SpacesRenamer",
-      dependencies: ["CGSPrivate"],
       path: ".",
       // Sources are Swift 5 mode under the Xcode project (SWIFT_VERSION 5.0);
       // keep the same language mode here until the 3b migration.
-      exclude: ["CGSPrivate", "AppIcon.icon", "Info.plist", "SpacesRenamer.entitlements", "SpacesRenamerBridge.h", "Tests"],
+      exclude: ["AppIcon.icon", "Info.plist", "SpacesRenamer.entitlements", "Tests"],
       swiftSettings: [.swiftLanguageMode(.v5)],
       linkerSettings: [
+        .linkedFramework("CoreGraphics"),
         // macOS chooses the control design from the SDK version recorded in
         // the binary's LC_BUILD_VERSION. Xcode 27's SwiftPM stamps the
         // package's deployment target (14.0) into that field, which silently

@@ -66,9 +66,10 @@ version, is the constraint.
   - SwiftUI text field with focus state (replaces `SpaceNameCard`).
 - `SpacesRenamer/Paths.swift`
   - Centralized constants and preference-domain keys.
-- `SpacesRenamer/Package.swift` / `SpacesRenamer/CGSPrivate/`
+- `SpacesRenamer/Package.swift` / `SpacesRenamer/CGSAccess.swift`
   - SwiftPM manifest (swift-tools-version 6.0, `swiftLanguageMode(.v5)`,
-    macOS 14 platform) and the ported private CoreGraphics C target.
+    macOS 14 platform) and the private CoreGraphics symbols, declared with
+    `@_silgen_name` so the app target stays Swift-only.
 - `spaces-renamer/spacesRenamer.m`
   - Dock/Mission Control hook and label layout.
   - Reads the `com.apple.dock` preference domain

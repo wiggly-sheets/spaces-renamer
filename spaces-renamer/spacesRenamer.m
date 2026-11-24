@@ -149,6 +149,7 @@ static char OFFSET;
 static char NEW_X;
 static char TYPE;
 static char PENDING_APPLY;
+static char HIDDEN_OPACITY;
 static char CACHED_TEXT_LAYER;
 static char OBSERVING_PROPERTIES_CHANGED;
 
@@ -505,6 +506,33 @@ static NSArray<Monitor *> *parseMonitorsFromRaw(NSDictionary *names, NSArray *mo
   return parsedMonitors;
 }
 
+// The Spaces layout from the window server. The app publishes a copy for the legacy Dock path,
+// but that copy can lag by seconds while spaces are rearranged in Mission Control, so the macOS 27
+// path reads the layout itself, at most once a frame. The hook test has no window server layout
+// and pins the published snapshot instead.
+extern int _CGSDefaultConnection(void);
+extern CFArrayRef CGSCopyManagedDisplaySpaces(int connection);
+
+static NSArray *currentMonitors(void) {
+  id published = readPreference(kMonitorsKey, namesDomain());
+  if (testDomain() == nil && !usesLegacyDockPath()) {
+    static NSArray *live;
+    static CFTimeInterval readAt;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (live != nil && now - readAt < 1.0 / 60.0) {
+      return [[live retain] autorelease];
+    }
+    CFArrayRef layout = CGSCopyManagedDisplaySpaces(_CGSDefaultConnection());
+    if (layout != NULL) {
+      [live release];
+      live = (NSArray *)layout;
+      readAt = now;
+      return [[live retain] autorelease];
+    }
+  }
+  return [published isKindOfClass:[NSArray class]] ? published : nil;
+}
+
 static NSArray<Monitor *> *getNamesFromPlist(BOOL *cacheHit) {
   // The app publishes names and monitors to the `com.apple.dock` preference
   // domain (readable by every possible host, including the macOS 27
@@ -518,8 +546,8 @@ static NSArray<Monitor *> *getNamesFromPlist(BOOL *cacheHit) {
     if (![publishedNames isKindOfClass:[NSDictionary class]]) {
       return @[];
     }
-    id publishedMonitors = readPreference(kMonitorsKey, namesDomain());
-    if (![publishedMonitors isKindOfClass:[NSArray class]]) {
+    NSArray *publishedMonitors = currentMonitors();
+    if (publishedMonitors == nil) {
       return @[];
     }
     return parseMonitorsFromRaw(publishedNames, publishedMonitors);
@@ -714,6 +742,40 @@ static NSDictionary *spaceForDesktopNumber(NSArray<Monitor *> *names, Monitor *m
   return nil;
 }
 
+// Whether any display has a custom name for the desktop numbered `number`. While a label's
+// display is not attached yet, this tells the hook whether it will rename that label.
+static BOOL hasNameForDesktopNumber(NSArray<Monitor *> *names, NSInteger number) {
+  for (Monitor *monitor in names) {
+    if ([spaceForDesktopNumber(names, monitor, number)[@"name"] length] > 0) {
+      return YES;
+    }
+  }
+  return NO;
+}
+
+// WindowManager draws a container before its display is known and fades from that drawing into
+// the bar, which would flash its own "Desktop N" first. Hide the holder until the answer is known,
+// then restore its own opacity.
+static void hideHolder(CALayer *holder, BOOL hide) {
+  if (!holder) {
+    return;
+  }
+  NSNumber *opacity = objc_getAssociatedObject(holder, &HIDDEN_OPACITY);
+  if (hide == (opacity != nil)) {
+    return;
+  }
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (hide) {
+    assign(holder, &HIDDEN_OPACITY, @(holder.opacity));
+    holder.opacity = 0;
+  } else {
+    holder.opacity = opacity.floatValue;
+    assign(holder, &HIDDEN_OPACITY, nil);
+  }
+  [CATransaction commit];
+}
+
 // Applies the custom name to one "PreviewLabel". The label sits in a per-space container,
 // which is either a child of the collapsed bar (pointer away from the top edge) or the root of
 // its own window when Mission Control opens with the bar expanded (pointer at the top edge);
@@ -732,18 +794,24 @@ static BOOL applySpacesBarLabel(CATextLayer *label) {
   NSString *original = objc_getAssociatedObject(label, &ORIGINAL_STRING);
   NSInteger number = desktopNumberFromTitle(original);
   if (number == 0) {
+    hideHolder(label.superlayer, NO);
     return YES;  // full-screen app label (no desktop number): nothing to rename
   }
   NSArray<Monitor *> *names = getNamesFromPlist(NULL);
   if (names.count == 0) {
+    hideHolder(label.superlayer, NO);
     return YES;  // no custom names published: leave WindowManager's own title
   }
   NSString *displayUUID = displayUUIDForLayer(container);
   Monitor *monitor = monitorForDisplayUUID(names, displayUUID) ?: (names.count == 1 ? names[0] : nil);
   if (!monitor) {
+    // The display is not attached yet. Hide a label that will be renamed so it never flashes
+    // WindowManager's "Desktop N"; a label with no name at this number is left alone.
+    hideHolder(label.superlayer, hasNameForDesktopNumber(names, number));
     SRLog("label %{public}@ on unknown display %{public}@", original, displayUUID);
     return NO;  // root CAContext (and thus the display) not attached yet
   }
+  hideHolder(label.superlayer, NO);
 
   static BOOL hookReported = NO;
   if (!hookReported) {
@@ -760,7 +828,11 @@ static BOOL applySpacesBarLabel(CATextLayer *label) {
   }
   assign(label, &OVERRIDDEN_STRING, name);
   if (![label.string isEqual:name]) {
+    // Swap the text without the implicit cross-fade WindowManager would animate.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     label.string = name;
+    [CATransaction commit];
   }
   fitSpacesBarLabel(label, container);
   SRLog("display %{public}@ %{public}@ -> %{public}@ (label %{public}@)", monitor.displayUUID, original, label.string, NSStringFromRect(label.frame));
@@ -790,6 +862,7 @@ static const double kApplyRetryInterval = 1.0 / 60.0;
 
 static void scheduleApplyRetry(CATextLayer *label, int remaining) {
   if (remaining <= 0) {
+    hideHolder(label.superlayer, NO);  // give up: never leave a label hidden
     return;
   }
   if (objc_getAssociatedObject(label, &PENDING_APPLY)) {
@@ -893,6 +966,8 @@ ZKSwizzleInterface(_SRCATextLayer, CATextLayer, CATextLayer);
         scheduleApplyRetry(self, kApplyRetryAttempts);
       }
       overridden = objc_getAssociatedObject(self, &OVERRIDDEN_STRING);
+    } else if (![string isKindOfClass:[NSString class]]) {
+      hideHolder(self.superlayer, NO);  // attributed label: nothing to rename
     }
     if ([overridden isKindOfClass:[NSString class]]) {
       string = overridden;

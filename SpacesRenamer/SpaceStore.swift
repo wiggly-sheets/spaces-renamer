@@ -1,10 +1,6 @@
 import AppKit
 import Observation
 
-#if canImport(CGSPrivate)
-import CGSPrivate
-#endif
-
 struct ManagedSpace: Identifiable, Hashable {
   let id: String
   let managedID: Int
