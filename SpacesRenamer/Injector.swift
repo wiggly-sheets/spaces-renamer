@@ -266,21 +266,17 @@ struct PluginMarker {
       .flatMap(PluginMarker.init(raw:))
   }
 
-  /// Whether this marker comes from the same build as the app. Development builds carry a
-  /// `-dirty`/`-N-g<hash>` suffix and are never treated as stale. A live marker from another
-  /// release means the host is still running an old payload (for example after an app update),
-  /// so the app must inject again instead of reporting the old hook as current.
+  /// Whether this marker comes from the same payload as the app. The build stamps the app and
+  /// the payload with the same git-describe version, so an exact match is the whole test: a
+  /// marker from another version means the host still runs an older payload, for example after
+  /// an app update, and the app must inject again instead of reporting the old hook as current.
   func isCurrent(forAppVersion appVersion: String?) -> Bool {
     Self.versionMatches(markerVersion: version, appVersion: appVersion)
   }
 
   /// Pure comparison behind `isCurrent(forAppVersion:)`; exposed for tests.
   static func versionMatches(markerVersion: String, appVersion: String?) -> Bool {
-    guard
-      let appVersion,
-      !appVersion.contains("-"),
-      !markerVersion.contains("-")
-    else { return true }
+    guard let appVersion else { return true }
     return markerVersion == appVersion
   }
 

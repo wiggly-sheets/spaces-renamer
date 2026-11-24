@@ -82,14 +82,14 @@ final class InjectionRuntimeTests: XCTestCase {
     )
   }
 
-  func testDevelopmentBuildVersionsAreNeverStale() {
-    // Local builds stamp a git-describe suffix onto the app; comparing it to the
-    // payload's marketing version would force a reinjection on every launch.
-    XCTAssertTrue(
-      PluginMarker.versionMatches(markerVersion: "1.0.1", appVersion: "1.1.1-7-g1b77d6b")
+  func testDevelopmentBuildVersionSuffixesStillCompareExactly() {
+    // The build stamps the app and the payload with the same git-describe
+    // version, so a suffix must not be ignored: it identifies the payload.
+    XCTAssertFalse(
+      PluginMarker.versionMatches(markerVersion: "1.1.1-7-g1b77d6b", appVersion: "1.1.1-8-g0c22f4a")
     )
     XCTAssertTrue(
-      PluginMarker.versionMatches(markerVersion: "1.1.1-dirty", appVersion: "1.1.1")
+      PluginMarker.versionMatches(markerVersion: "1.1.1-7-g1b77d6b", appVersion: "1.1.1-7-g1b77d6b")
     )
     XCTAssertTrue(
       PluginMarker.versionMatches(markerVersion: "1.0.1", appVersion: nil)
