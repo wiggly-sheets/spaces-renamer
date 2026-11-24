@@ -113,6 +113,12 @@ No daemon, Mach service, privileged helper, persistent LaunchAgent, or `amfi_get
 
 > **Heads up:** during the activation window every GUI app launched at that moment inherits the loader. The loader's filter means only `WindowManager` and `Dock` load the renaming bundle. The window lasts only until the host restarts.
 
+#### Why MIP instead of a session-wide `DYLD_INSERT_LIBRARIES`
+
+The simpler approach is `launchctl setenv DYLD_INSERT_LIBRARIES …` followed by a host restart, which needs no bundled loader. It also applies to every GUI process launched while that variable is set. Unrelated apps then run our dylib, and some of them inspect their own loaded libraries for tampering: licensing checks in apps such as BetterTouchTool can read the injection as a crack attempt, and any app can misbehave with a foreign bundle inside it.
+
+MIP loads the hook into one named executable, so no other app ever loads it. The cost is the bundled loader and the short activation window above; that trade is worth avoiding side effects in unrelated processes.
+
 To use MIP from a checkout:
 
 ```bash
