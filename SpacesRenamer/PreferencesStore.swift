@@ -3,6 +3,11 @@ import Carbon.HIToolbox
 import Observation
 import ServiceManagement
 
+// Darwin notifications have no Swift module, so the C symbol is declared here. The injected
+// bundle listens for this name to refresh a bar that is already on screen.
+@_silgen_name("notify_post")
+private func notifyPost(_ name: UnsafePointer<CChar>) -> UInt32
+
 extension Notification.Name {
   static let spacesRenamerPreferencesChanged = Notification.Name("SpacesRenamerPreferencesChanged")
 }
@@ -452,6 +457,9 @@ final class PreferencesStore {
         ? activeProfile.names.merging(lastGeneratedNames) { _, generated in generated }
         : activeProfile.names
       UserDefaults(suiteName: dockDomain)?.set(displayedNames, forKey: "SpacesRenamerNames")
+      // Refreshes a bar that is already on screen instead of waiting for WindowManager to
+      // retitle it.
+      "com.wiggly-sheets.spaces-renamer.names-changed".withCString { _ = notifyPost($0) }
     }
   }
 }

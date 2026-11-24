@@ -3,6 +3,7 @@
 #import "ZKSwizzle.h"
 #import <QuartzCore/QuartzCore.h>
 #import <Cocoa/Cocoa.h>
+#import <notify.h>
 #import <os/signpost.h>
 #import <unistd.h>
 
@@ -38,6 +39,22 @@ static NSString *const kNamesDomain = @"com.apple.dock";
 static NSString *const kNamesKey = @"SpacesRenamerNames";       // { space uuid : name }
 static NSString *const kMonitorsKey = @"SpacesRenamerMonitors"; // CGSCopyManagedDisplaySpaces array
 static NSString *const kStatusKey = @"SpacesRenamerPlugin";     // status marker dictionary
+// com.apple.spaces' spans-displays, copied by the app: YES when desktops are numbered across
+// displays because they share spaces.
+static NSString *const kSpansKey = @"SpacesRenamerSpansDisplays";
+// Posted by the app after it publishes names.
+static const char *kNamesChangedNotification = "com.wiggly-sheets.spaces-renamer.names-changed";
+
+// Labels and bars seen so far, so a name change can be applied without waiting for WindowManager
+// to retitle them.
+static NSHashTable<CATextLayer *> *knownLabels;
+static NSHashTable<CALayer *> *knownBars;
+// Per display UUID: YES when WindowManager numbers its desktops after the previous displays'.
+// Learned from the labels and forgotten when the layout changes.
+static NSMutableDictionary<NSString *, NSNumber *> *numberedAcross;
+
+static void overrideAll(void);
+static void observeNameChanges(void);
 
 static NSString *testDomain(void) {
   const char *override = getenv("SPACES_RENAMER_DOMAIN");
@@ -137,7 +154,10 @@ static void spacesRenamerDidLoad(void) {
     if (!isSpacesBarHost()) {
       return; // loaded into some other process (DYLD injects everywhere) — no-op
     }
-    // The status marker is the only constructor work, gated to the release's real host.
+    // Gated to the release's real host, so a stray load does nothing.
+    knownLabels = [[NSHashTable weakObjectsHashTable] retain];
+    knownBars = [[NSHashTable weakObjectsHashTable] retain];
+    observeNameChanges();
     writePluginStatus(NO);
   }
 }
@@ -524,6 +544,10 @@ static NSArray *currentMonitors(void) {
     }
     CFArrayRef layout = CGSCopyManagedDisplaySpaces(_CGSDefaultConnection());
     if (layout != NULL) {
+      if (live != nil && ![(NSArray *)layout isEqual:live]) {
+        [numberedAcross release];
+        numberedAcross = nil;  // learned again from the labels for the new layout
+      }
       [live release];
       live = (NSArray *)layout;
       readAt = now;
@@ -718,37 +742,90 @@ static NSInteger desktopNumberFromTitle(NSString *title) {
   return [title isEqualToString:desktopWord] ? 1 : 0;
 }
 
-// The space a desktop number refers to: the Nth desktop-type space (type 0) of the display,
-// or, if the display does not have that many, the Nth desktop across all displays in order
-// (macOS numbers desktops per display when each display has its own Spaces, globally otherwise).
-static NSDictionary *spaceForDesktopNumber(NSArray<Monitor *> *names, Monitor *monitor, NSInteger number) {
+// Desktop-type spaces of a display, in order. Full-screen app spaces have another type.
+static NSArray<NSDictionary *> *desktopsOnMonitor(Monitor *monitor) {
+  NSMutableArray<NSDictionary *> *desktops = [NSMutableArray arrayWithCapacity:monitor.spaces.count];
+  for (NSDictionary *space in monitor.spaces) {
+    if ([space[@"type"] integerValue] == 0) {
+      [desktops addObject:space];
+    }
+  }
+  return desktops;
+}
+
+// The desktops on the displays before this one in the layout.
+static NSInteger desktopOffsetForMonitor(NSArray<Monitor *> *names, Monitor *monitor) {
+  NSInteger offset = 0;
+  for (Monitor *candidate in names) {
+    if (candidate == monitor) {
+      break;
+    }
+    offset += (NSInteger)desktopsOnMonitor(candidate).count;
+  }
+  return offset;
+}
+
+// The space a desktop number refers to. WindowManager numbers desktops from 1 on each display
+// when the displays have their own Spaces, and across displays when they share them. It can also
+// number across displays whose Spaces do not share, so that a second display's first desktop is
+// "Desktop 3"; the labels show which. `undecided` reports the case where the numbering is not
+// known yet, so the caller can hide the label instead of showing a possibly wrong name.
+static NSDictionary *spaceForDesktopNumber(NSArray<Monitor *> *names, Monitor *monitor,
+                                           NSInteger number, BOOL *undecided) {
+  *undecided = NO;
   if (number <= 0) {
     return nil;
   }
-  NSInteger remaining = number;
-  for (NSDictionary *space in monitor.spaces) {
-    if ([space[@"type"] integerValue] == 0 && --remaining == 0) {
-      return space;
+  id spans = readPreference(kSpansKey, namesDomain());
+  NSArray<NSDictionary *> *spaces;
+  if ([spans respondsToSelector:@selector(boolValue)] && [spans boolValue]) {
+    NSMutableArray<NSDictionary *> *all = [NSMutableArray array];
+    for (Monitor *candidate in names) {
+      [all addObjectsFromArray:desktopsOnMonitor(candidate)];
     }
-  }
-  remaining = number;
-  for (Monitor *candidate in names) {
-    for (NSDictionary *space in candidate.spaces) {
-      if ([space[@"type"] integerValue] == 0 && --remaining == 0) {
-        return space;
+    spaces = all;
+  } else {
+    spaces = desktopsOnMonitor(monitor);
+    NSInteger offset = desktopOffsetForMonitor(names, monitor);
+    NSString *display = monitor.displayUUID;
+    if (offset && display) {
+      // A display's last desktop numbered above its desktop count means across; "Desktop 1"
+      // means per display.
+      if (numberedAcross == nil) {
+        numberedAcross = [NSMutableDictionary new];
+      }
+      if (number > (NSInteger)spaces.count) {
+        numberedAcross[display] = @YES;
+      } else if (number == 1) {
+        numberedAcross[display] = @NO;
+      }
+      NSNumber *across = numberedAcross[display];
+      if (!across) {
+        *undecided = YES;
+        return nil;
+      }
+      if (across.boolValue) {
+        number -= offset;
       }
     }
   }
-  return nil;
+  return number > 0 && number <= (NSInteger)spaces.count ? spaces[number - 1] : nil;
 }
 
-// Whether any display has a custom name for the desktop numbered `number`. While a label's
-// display is not attached yet, this tells the hook whether it will rename that label.
+// Whether any display has a custom name for the desktop numbered `number`, counting from 1 on
+// each display or across them. A label whose display or numbering is not known yet uses this to
+// decide whether hiding it would hide a name.
 static BOOL hasNameForDesktopNumber(NSArray<Monitor *> *names, NSInteger number) {
+  NSInteger offset = 0;
   for (Monitor *monitor in names) {
-    if ([spaceForDesktopNumber(names, monitor, number)[@"name"] length] > 0) {
-      return YES;
+    NSArray<NSDictionary *> *desktops = desktopsOnMonitor(monitor);
+    for (NSNumber *index in @[@(number - 1), @(number - 1 - offset)]) {
+      NSInteger i = index.integerValue;
+      if (i >= 0 && i < (NSInteger)desktops.count && [desktops[i][@"name"] length] > 0) {
+        return YES;
+      }
     }
+    offset += (NSInteger)desktops.count;
   }
   return NO;
 }
@@ -802,14 +879,20 @@ static BOOL applySpacesBarLabel(CATextLayer *label) {
     hideHolder(label.superlayer, NO);
     return YES;  // no custom names published: leave WindowManager's own title
   }
+  if (knownLabels != nil) {
+    [knownLabels addObject:label];
+  }
   NSString *displayUUID = displayUUIDForLayer(container);
   Monitor *monitor = monitorForDisplayUUID(names, displayUUID) ?: (names.count == 1 ? names[0] : nil);
-  if (!monitor) {
-    // The display is not attached yet. Hide a label that will be renamed so it never flashes
-    // WindowManager's "Desktop N"; a label with no name at this number is left alone.
+  BOOL undecided = NO;
+  NSDictionary *space = monitor ? spaceForDesktopNumber(names, monitor, number, &undecided) : nil;
+  if (!monitor || undecided) {
+    // The display is not attached yet, or its numbering is not known. Hide a label that will be
+    // renamed so it never flashes WindowManager's "Desktop N"; a label with no name at this
+    // number is left alone.
     hideHolder(label.superlayer, hasNameForDesktopNumber(names, number));
-    SRLog("label %{public}@ on unknown display %{public}@", original, displayUUID);
-    return NO;  // root CAContext (and thus the display) not attached yet
+    SRLog("label %{public}@ on unknown display %{public}@ (undecided %d)", original, displayUUID, undecided);
+    return NO;
   }
   hideHolder(label.superlayer, NO);
 
@@ -819,7 +902,7 @@ static BOOL applySpacesBarLabel(CATextLayer *label) {
     writePluginStatus(YES);
   }
 
-  NSString *name = spaceForDesktopNumber(names, monitor, number)[@"name"];
+  NSString *name = space[@"name"];
   if (name.length == 0) {
     // Names are read fresh on every pass, so a cleared name must also clear the override;
     // WindowManager keeps re-applying its own title on its own.
@@ -841,6 +924,9 @@ static BOOL applySpacesBarLabel(CATextLayer *label) {
 
 // Applies the names to every container currently attached to the collapsed bar.
 static void applySpacesBarNames(CALayer *bar) {
+  if (knownBars != nil) {
+    [knownBars addObject:bar];
+  }
   for (CALayer *sublayer in bar.sublayers) {
     if ([sublayer.name isEqualToString:kSpacesBarContainerLayerName]) {
       CATextLayer *label = findLabelLayer(sublayer);
@@ -875,6 +961,29 @@ static void scheduleApplyRetry(CATextLayer *label, int remaining) {
     if (!applySpacesBarLabel(label)) {
       scheduleApplyRetry(label, remaining - 1);
     }
+  });
+}
+
+// The app published new names: refresh the visible bar now instead of waiting for WindowManager
+// to retitle it. Labels that cannot resolve yet retry; every known bar is laid out again because
+// a name change can change the widths and the row centering.
+static void overrideAll(void) {
+  for (CATextLayer *label in knownLabels.allObjects) {
+    if (!applySpacesBarLabel(label)) {
+      scheduleApplyRetry(label, kApplyRetryAttempts);
+    }
+  }
+  for (CALayer *bar in knownBars.allObjects) {
+    applySpacesBarNames(bar);
+  }
+}
+
+static void observeNameChanges(void) {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    int token = 0;
+    notify_register_dispatch(kNamesChangedNotification, &token, dispatch_get_main_queue(),
+                             ^(int unused) { overrideAll(); });
   });
 }
 

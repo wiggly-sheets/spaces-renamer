@@ -129,12 +129,70 @@ static void testReSwizzlingSameSourceIsIdempotent(void) {
           @"after a re-swizzle the custom name must still be published");
 }
 
+// Two displays of two desktops each: a1 a2 on the first, b1 b2 on the second.
+static NSArray<Monitor *> *twoDisplayMonitors(void) {
+  NSArray *raw = @[
+    @{ @"Display Identifier": @"Main",
+       @"Current Space": @{ @"uuid": @"a1" },
+       @"Spaces": @[ @{ @"uuid": @"a1", @"type": @0 }, @{ @"uuid": @"a2", @"type": @0 } ] },
+    @{ @"Display Identifier": @"Second",
+       @"Current Space": @{ @"uuid": @"b1" },
+       @"Spaces": @[ @{ @"uuid": @"b1", @"type": @0 }, @{ @"uuid": @"b2", @"type": @0 } ] }
+  ];
+  NSDictionary *names = @{ @"a1": @"A1", @"a2": @"A2", @"b1": @"B1", @"b2": @"B2" };
+  return parseMonitorsFromRaw(names, raw);
+}
+
+static void publishSpans(BOOL spans) {
+  NSString *domain = testDomain();
+  CFPreferencesSetAppValue((CFStringRef)kSpansKey, (CFPropertyListRef)@(spans), (CFStringRef)domain);
+  CFPreferencesAppSynchronize((CFStringRef)domain);
+}
+
+static void testDesktopNumbering(void) {
+  NSArray<Monitor *> *monitors = twoDisplayMonitors();
+  require(monitors.count == 2, @"the fixture must parse two displays");
+  Monitor *first = monitors[0];
+  Monitor *second = monitors[1];
+  BOOL undecided = NO;
+
+  // Without evidence the second display's numbering is unknown, so the hook
+  // must not guess and show a name on the wrong Space.
+  [numberedAcross release];
+  numberedAcross = nil;
+  publishSpans(NO);
+  require(spaceForDesktopNumber(monitors, second, 2, &undecided) == nil && undecided,
+          @"an unknown numbering must be reported as undecided");
+
+  // "Desktop 1" on a later display proves the desktops restart per display.
+  NSDictionary *space = spaceForDesktopNumber(monitors, second, 1, &undecided);
+  require([space[@"name"] isEqual:@"B1"] && !undecided,
+          @"desktop 1 on a later display is that display's first desktop");
+
+  // A number above the display's own count proves numbering continues across.
+  space = spaceForDesktopNumber(monitors, second, 3, &undecided);
+  require([space[@"name"] isEqual:@"B1"] && !undecided,
+          @"a desktop number past the second display's count is numbered across");
+
+  // When macOS numbers every desktop across displays, the offsets are known.
+  [numberedAcross release];
+  numberedAcross = nil;
+  publishSpans(YES);
+  space = spaceForDesktopNumber(monitors, second, 3, &undecided);
+  require([space[@"name"] isEqual:@"B1"] && !undecided,
+          @"shared Spaces map desktop 3 to the second display's first desktop");
+  space = spaceForDesktopNumber(monitors, first, 2, &undecided);
+  require([space[@"name"] isEqual:@"A2"],
+          @"shared Spaces keep the first display's desktop order");
+}
+
 int main(void) {
   @autoreleasepool {
     testSetBoundsPublishesSpacesBarNames();
     testLayoutSublayersPublishesSpacesBarNames();
     testReSwizzlingSameSourceIsIdempotent();
-    NSLog(@"PASS: Dock hook integration (applySpacesBarNames + swizzle idempotency)");
+    testDesktopNumbering();
+    NSLog(@"PASS: Dock hook integration (applySpacesBarNames + swizzle idempotency + desktop numbering)");
   }
   return 0;
 }

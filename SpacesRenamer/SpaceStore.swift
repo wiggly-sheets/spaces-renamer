@@ -164,6 +164,12 @@ final class SpaceStore {
     if previousMonitors == nil || !NSArray(array: monitors).isEqual(previousMonitors) {
       dockDefaults?.set(monitors, forKey: "SpacesRenamerMonitors")
     }
+    // The host cannot read com.apple.spaces from its sandbox, so it learns from this copy
+    // whether the displays share spaces and therefore number desktops across them.
+    let spans = UserDefaults(suiteName: "com.apple.spaces")?.bool(forKey: "spans-displays") ?? false
+    if (dockDefaults?.object(forKey: "SpacesRenamerSpansDisplays") as? Bool) != spans {
+      dockDefaults?.set(spans, forKey: "SpacesRenamerSpansDisplays")
+    }
   }
 
   /// The text shown in the menu bar label for the current Space (empty when
