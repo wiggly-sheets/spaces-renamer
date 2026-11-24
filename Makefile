@@ -110,7 +110,6 @@ test:
 	./scripts/tests/test_embed_injection.sh
 	./scripts/tests/test_injector_runtime.sh
 	./scripts/tests/test_manpage.sh
-	./scripts/tests/test_settings_contracts.sh
 	./scripts/tests/test_sdk_stamp.sh
 	./scripts/tests/test_app_icon.sh
 	./scripts/tests/test_cli.sh

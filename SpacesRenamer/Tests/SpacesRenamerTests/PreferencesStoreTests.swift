@@ -248,4 +248,35 @@ final class PreferencesStoreTests: XCTestCase {
     XCTAssertEqual(store.profiles.map(\.name), ["Home"])
     XCTAssertEqual(store.activeProfileID, store.profiles[0].id)
   }
+
+  // MARK: - Live dock-domain publication
+
+  func testNamesPublishToTheInjectedDomain() throws {
+    let domain = "SpacesRenamerTests-\(UUID().uuidString)"
+    defer { UserDefaults().removePersistentDomain(forName: domain) }
+    let store = PreferencesStore(
+      fileURL: storeURL,
+      publishesToDockDomain: true,
+      dockDomain: domain
+    )
+
+    store.setName("Code", for: "space-a")
+
+    let published = UserDefaults(suiteName: domain)?.dictionary(forKey: "SpacesRenamerNames")
+    XCTAssertEqual(published?["space-a"] as? String, "Code")
+  }
+
+  func testNamesStayOutOfTheInjectedDomainWhenPublishingIsOff() throws {
+    let domain = "SpacesRenamerTests-\(UUID().uuidString)"
+    defer { UserDefaults().removePersistentDomain(forName: domain) }
+    let store = PreferencesStore(
+      fileURL: storeURL,
+      publishesToDockDomain: false,
+      dockDomain: domain
+    )
+
+    store.setName("Code", for: "space-a")
+
+    XCTAssertNil(UserDefaults(suiteName: domain)?.dictionary(forKey: "SpacesRenamerNames"))
+  }
 }

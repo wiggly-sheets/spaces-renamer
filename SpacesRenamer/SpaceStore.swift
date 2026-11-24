@@ -73,14 +73,16 @@ final class SpaceStore {
   /// `NativeAppManagement.publishesToDockNames` is true: the copy installed in
   /// /Applications, or any copy started with `-publishDockNames YES`.
   private var publishesToDockDomain: Bool
+  private let dockDomain: String
 
   convenience init() {
     self.init(publishesToDockDomain: NativeAppManagement.publishesToDockNames)
   }
 
   /// Test seam: points the monitor layout at the injected bundle off.
-  init(publishesToDockDomain: Bool) {
+  init(publishesToDockDomain: Bool, dockDomain: String = "com.apple.dock") {
     self.publishesToDockDomain = publishesToDockDomain
+    self.dockDomain = dockDomain
   }
 
   @MainActor
@@ -149,10 +151,15 @@ final class SpaceStore {
     // publish into the live dock domain.
     errorMessage = nil
 
-    // Live preference-domain layout for the injected Dock bundle. Only write
-    // when the value changed to avoid cfprefsd write churn on every refresh.
+    publishMonitors(monitors)
+  }
+
+  /// Writes the layout the injected bundle reads. Only writes when the value changed to avoid
+  /// cfprefsd churn on every refresh.
+  @MainActor
+  func publishMonitors(_ monitors: [[String: Any]]) {
     guard publishesToDockDomain else { return }
-    let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
+    let dockDefaults = UserDefaults(suiteName: dockDomain)
     let previousMonitors = dockDefaults?.array(forKey: "SpacesRenamerMonitors")
     if previousMonitors == nil || !NSArray(array: monitors).isEqual(previousMonitors) {
       dockDefaults?.set(monitors, forKey: "SpacesRenamerMonitors")

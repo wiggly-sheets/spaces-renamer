@@ -199,7 +199,13 @@ enum Injector {
   }
 
   static var defaultHost: String {
-    ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 ? "WindowManager" : "Dock"
+    host(forMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+  }
+
+  /// The process that draws the Spaces bar for a macOS release. Dock keeps running on macOS 27,
+  /// so only one of the two can be the host the hook must load into.
+  static func host(forMajorVersion majorVersion: Int) -> String {
+    majorVersion >= 27 ? "WindowManager" : "Dock"
   }
 
   /// Root of the private loader the app installs on demand.
@@ -231,9 +237,12 @@ struct PluginMarker {
   /// The domain of the process that draws the Spaces bar on this macOS release. Dock keeps
   /// running on macOS 27, so its marker cannot prove the WindowManager hook is loaded.
   static var hostDomain: String {
-    ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
-      ? "com.apple.WindowManager"
-      : "com.apple.dock"
+    hostDomain(forMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+  }
+
+  /// Preference domain of the release's Spaces bar host, where the plugin writes its marker.
+  static func hostDomain(forMajorVersion majorVersion: Int) -> String {
+    majorVersion >= 27 ? "com.apple.WindowManager" : "com.apple.dock"
   }
 
   let version: String

@@ -136,4 +136,39 @@ final class SpaceStoreTests: XCTestCase {
     )
     XCTAssertNil(result)
   }
+
+  // MARK: - Live dock-domain publication
+
+  private var sampleMonitors: [[String: Any]] {
+    [
+      [
+        "Display Identifier": "Main",
+        "Current Space": ["uuid": "space-a"],
+        "Spaces": [["uuid": "space-a", "ManagedSpaceID": 1]],
+      ]
+    ]
+  }
+
+  @MainActor
+  func testMonitorsPublishToTheInjectedDomain() {
+    let domain = "SpacesRenamerTests-\(UUID().uuidString)"
+    defer { UserDefaults().removePersistentDomain(forName: domain) }
+    let store = SpaceStore(publishesToDockDomain: true, dockDomain: domain)
+
+    store.publishMonitors(sampleMonitors)
+
+    let published = UserDefaults(suiteName: domain)?.array(forKey: "SpacesRenamerMonitors")
+    XCTAssertEqual(NSArray(array: published ?? []), NSArray(array: sampleMonitors))
+  }
+
+  @MainActor
+  func testMonitorsStayOutOfTheInjectedDomainWhenPublishingIsOff() {
+    let domain = "SpacesRenamerTests-\(UUID().uuidString)"
+    defer { UserDefaults().removePersistentDomain(forName: domain) }
+    let store = SpaceStore(publishesToDockDomain: false, dockDomain: domain)
+
+    store.publishMonitors(sampleMonitors)
+
+    XCTAssertNil(UserDefaults(suiteName: domain)?.array(forKey: "SpacesRenamerMonitors"))
+  }
 }

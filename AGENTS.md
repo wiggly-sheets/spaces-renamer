@@ -48,8 +48,8 @@ version, is the constraint.
   - Queries yabai for Space labels and real application windows.
   - Applies the same real-window predicate used by Spacemap.
 - `SpacesRenamer/Injector.swift`
-  - `Injector`/`InjectorBackend`/`InjectorState`/`InjectorError`/`PluginMarker`/
-    `ActivationModel` for the DYLD/MIP injection stack.
+  - `Injector`/`InjectorState`/`InjectorError`/`PluginMarker`/`ActivationModel`
+    for the MIP injection stack.
 - `SpacesRenamer/InjectionManager.swift`
   - State machine: `unsupported`/`prerequisitesMissing`/`checking`/`inactive`/
     `activating`/`active`/`error`.
@@ -78,11 +78,13 @@ version, is the constraint.
 - `spaces-renamer/ZKSwizzle.{h,m}`
   - Objective-C runtime swizzling support.
 - `injection/`
-  - `injector.sh` — the active DYLD LaunchAgent + MIP bundle injection script.
+  - `injector.sh` — installs the MIP loader and bundle, then maps the loader
+    during one host restart through a short-lived `DYLD_INSERT_LIBRARIES` window.
 - `injection/mip/`
-  - Prebuilt private MIP runtime (`injectd`, `loader.dylib`, `lsdinjector.dylib`,
-    `inject`) plus the launchd plist templates that ship inside the app.
-  - The runtime installs into `/Library/SpacesRenamer/mip` and never modifies a
+  - Prebuilt private MIP loader (`loader.dylib`) plus its README; it ships
+    inside the app bundle.
+  - The loader installs into the user's
+    `~/Library/Application Support/SpacesRenamer/mip` and never modifies a
     system MIP install.
 - `third_party/mip/`
   - Vendored, patched MIP source (X11 licence) that builds `injection/mip/`.
@@ -152,8 +154,7 @@ Expected architectures:
 
 `make app` builds the SwiftPM package with xcodebuild in one pass for `arm64`
 and hand-assembles the app bundle at `.build/SpacesRenamer.app`.
-`make bundle` assembles the MIP bundle and `make inject` runs the manual
-`injection/injector.sh dyld on` path. `make plugin` stays xcodebuild.
+`make bundle` assembles the MIP bundle. `make plugin` stays xcodebuild.
 
 The app build is a single xcodebuild pass:
 
@@ -299,8 +300,8 @@ process that draws the Spaces bar for the running macOS release:
 `com.apple.WindowManager` on macOS 27+, `com.apple.dock` up to macOS 26. The app
 reads only that domain, because Dock keeps running on macOS 27 and its marker
 cannot prove the WindowManager hook is loaded. The bundle also refuses to
-publish or rename unless it is running in that host; DYLD injection reaches
-every process, including command-line tools with no bundle identifier. Do not
+publish or rename unless it is running in that host, so a stray load into any
+other process is a no-op. Do not
 change these keys without updating both the Swift app and injected bundle
 together.
 
@@ -340,9 +341,10 @@ work, measure it and constrain it to the smallest safe subtree.
 The repository pipeline is:
 
 1. `make package-injection` creates the current arm64e payload.
-2. `injection/injector.sh` decides DYLD vs MIP: it validates Apple silicon and
-   required NVRAM boot arguments, then sets up `DYLD_INSERT_LIBRARIES` via a
-   per-user LaunchAgent or registers the MIP bundle.
+2. `injection/injector.sh` validates the prerequisites, installs the MIP
+   loader and bundle under the user's Application Support, then maps the
+   loader with a one-shot `DYLD_INSERT_LIBRARIES` environment variable during
+   a host restart.
 3. The host (WindowManager on macOS 27+, Dock on earlier releases) loads
    `spaces-renamer.dylib` on its next restart.
 
@@ -462,10 +464,11 @@ In priority order:
   - Add `packaging/` with the create-dmg invocation and a placeholder
     background (plain white/grey, "Drag into Applications" instructions baked
     in); add a `make dmg` target.
-- [x] Add app-managed injection for all-in-one workflow (done — the DYLD/MIP
+- [x] Add app-managed injection for all-in-one workflow (done — the MIP
   stack, `InjectionManager` UI/state, consent + auto-inject at login and on
-  host restart, and the Dock health handshake are all implemented. See
-  `docs/port-plan-dyld-mip.md`.)
+  host restart, and the Dock health handshake are all implemented. See the
+  App-Managed Injection section and
+  `docs/adr/0001-app-managed-injection-elevation.md`.)
   - Implementation branch: `feat/app-managed-injection` (was
     `codex/app-managed-injection`). Design in the App-Managed Injection section
     above and `docs/adr/0001-app-managed-injection-elevation.md`. The XPC

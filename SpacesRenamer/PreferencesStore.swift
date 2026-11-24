@@ -106,6 +106,7 @@ final class PreferencesStore {
 
   private let fileURL: URL
   private let publishesToDockDomain: Bool
+  private let dockDomain: String
   private var lastGeneratedNames: [String: String] = [:]
 
   convenience init() {
@@ -123,9 +124,10 @@ final class PreferencesStore {
   /// publishes only when `NativeAppManagement.publishesToDockNames` is true:
   /// the copy installed in an Applications folder, or any copy started with
   /// `-publishDockNames YES`.
-  init(fileURL: URL, publishesToDockDomain: Bool) {
+  init(fileURL: URL, publishesToDockDomain: Bool, dockDomain: String = "com.apple.dock") {
     self.fileURL = fileURL
     self.publishesToDockDomain = publishesToDockDomain
+    self.dockDomain = dockDomain
 
     if
       let data = try? Data(contentsOf: fileURL),
@@ -449,7 +451,7 @@ final class PreferencesStore {
       let displayedNames = namingMode != .manual
         ? activeProfile.names.merging(lastGeneratedNames) { _, generated in generated }
         : activeProfile.names
-      UserDefaults(suiteName: "com.apple.dock")?.set(displayedNames, forKey: "SpacesRenamerNames")
+      UserDefaults(suiteName: dockDomain)?.set(displayedNames, forKey: "SpacesRenamerNames")
     }
   }
 }

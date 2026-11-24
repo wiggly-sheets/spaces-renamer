@@ -96,4 +96,21 @@ final class InjectionRuntimeTests: XCTestCase {
     )
   }
 
+  func testTheHostProcessFollowsTheMacOSRelease() {
+    XCTAssertEqual(Injector.host(forMajorVersion: 26), "Dock")
+    XCTAssertEqual(Injector.host(forMajorVersion: 27), "WindowManager")
+    XCTAssertEqual(Injector.host(forMajorVersion: 28), "WindowManager")
+  }
+
+  func testThePluginMarkerDomainFollowsTheHostProcess() {
+    XCTAssertEqual(PluginMarker.hostDomain(forMajorVersion: 26), "com.apple.dock")
+    XCTAssertEqual(PluginMarker.hostDomain(forMajorVersion: 27), "com.apple.WindowManager")
+    XCTAssertEqual(PluginMarker.hostDomain(forMajorVersion: 28), "com.apple.WindowManager")
+  }
+
+  func testThePrivateLoaderLivesInApplicationSupport() {
+    let expected = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Application Support/SpacesRenamer/mip").path
+    XCTAssertEqual(Injector.privateMIPRoot, expected)
+  }
 }
